@@ -315,21 +315,6 @@
 
     @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr);}.chart-grid,.roi-grid,.comp-grid{grid-template-columns:1fr;}.sidebar{display:none;}}
     @media(max-width:640px){.topbar-center{display:none;}.kpi-grid{grid-template-columns:repeat(2,1fr);}}
-
-    /* ── MOBILE BOTTOM NAV ── */
-    .mobile-nav{position:fixed;bottom:0;left:0;right:0;z-index:200;background:rgba(8,8,14,.97);border-top:1px solid var(--border);padding:6px 4px;padding-bottom:env(safe-area-inset-bottom,6px);display:none;justify-content:space-around;align-items:center;}
-    .mnav-item{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 6px;border-radius:var(--r10);cursor:pointer;transition:all .15s;border:none;background:transparent;min-width:40px;}
-    .mnav-icon{font-size:18px;line-height:1;}
-    .mnav-label{font-size:8.5px;color:var(--text3);font-family:var(--mono);}
-    .mnav-item.active .mnav-label{color:var(--accent3);}
-    .mnav-item.active .mnav-icon{filter:drop-shadow(0 0 4px var(--accent));}
-    @media(max-width:640px){.mobile-nav{display:flex;}.content{padding-bottom:80px;}}
-    @media(min-width:641px){.mobile-nav{display:none!important;}}
-
-    /* ── BACK BUTTON (PWA standalone) ── */
-    .back-btn{display:none;align-items:center;gap:4px;padding:5px 10px;border-radius:var(--r10);background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap;}
-    .back-btn:hover{border-color:var(--border2);color:var(--text);}
-    @media(max-width:640px){.back-btn{display:flex;}}
   </style>
 </head>
 <body>
@@ -354,7 +339,6 @@
     </div>
   </div>
   <div class="topbar-right">
-    <button class="back-btn" id="back-btn" onclick="navBack()" style="display:none;">← Retour</button>
     <div class="lang-toggle">
       <button class="lang-btn active" id="lb-fr" onclick="setLang('fr')">FR</button>
       <button class="lang-btn" id="lb-en" onclick="setLang('en')">EN</button>
@@ -402,25 +386,6 @@
   </div>
   <div class="content" id="content"></div>
 </div>
-
-<!-- MOBILE BOTTOM NAV -->
-<nav class="mobile-nav" id="mobile-nav">
-  <button class="mnav-item active" id="mn-dashboard" onclick="nav('dashboard',document.getElementById('nav-dashboard'));updateMobileNav('dashboard')">
-    <span class="mnav-icon">📊</span><span class="mnav-label">Dashboard</span>
-  </button>
-  <button class="mnav-item" id="mn-events" onclick="nav('events',document.getElementById('nav-events'));updateMobileNav('events')">
-    <span class="mnav-icon">🎫</span><span class="mnav-label">Events</span>
-  </button>
-  <button class="mnav-item" id="mn-add" onclick="nav('add',document.getElementById('nav-add'));updateMobileNav('add')">
-    <span class="mnav-icon">➕</span><span class="mnav-label">Ajouter</span>
-  </button>
-  <button class="mnav-item" id="mn-watchlist" onclick="nav('watchlist',document.getElementById('nav-watchlist'));updateMobileNav('watchlist')">
-    <span class="mnav-icon">⭐</span><span class="mnav-label">Watchlist</span>
-  </button>
-  <button class="mnav-item" id="mn-settings" onclick="nav('settings',document.getElementById('nav-settings'));updateMobileNav('settings')">
-    <span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span>
-  </button>
-</nav>
 
 <script>
 /* ══════════════════════════════════════════════
@@ -560,8 +525,137 @@ async function loadSheet() {
   render();
 
   try {
-    // Apps Script (JSON) ou CSV direct
+    // Fetch direct — Apps Script JSON ou CSV
     const res = await fetch(S.sheetUrl, { method: 'GET', cache: 'no-store' });
+    if (!res.status === 200 && res.status !== 302) throw new Error('HTTP ' + res.status);
+    const rawText = await res.text();
+    
+    // Auto-détecte JSON (Apps Script) ou CSV
+    let events = [];
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      // JSON depuis Apps Script
+      try {
+        const rows = JSON.parse(trimmed);
+        const arr = Array.isArray(rows) ? rows : [rows];
+        let nextId = 1000;
+        events = arr.map(row => {
+          const face = parseFloat(row.face) || 0;
+          const resale = parseFloat(row.resale) || 0;
+          const net = resale * 0.85;
+          const marge = face > 0 ? Math.round(((net - face) / face) * 100) : 0;
+          const score = parseFloat(row.score) || Math.min(Math.max(Math.round(marge / 20 + 5), 5), 10);
+          return {
+            id: nextId++,
+            name: String(row.name || ''),
+            sub: String(row.sub || ''),
+            date: String(row.date || ''),
+            h: String(row.horizon || row.h || 'mid'),
+            country: String(row.country || 'FR'),
+            flag: String(row.flag || '🎫'),
+            cat: String(row.cat || 'concert'),
+            platform: String(row.platform || ''),
+            face, resale, marge, score,
+            starred: false, custom: false, live: false,
+          };
+        }).filter(e => e.name && e.face > 0);
+      } catch(e) { throw new Error('JSON invalide: ' + e.message); }
+    } else {
+      // CSV classique
+      events = parseSheetCSV(rawText);
+    }
+
+    if (events.length === 0) throw new Error('Sheet vide ou format incorrect');
+
+    S.sheetEvents = events;
+    S.sheetLoaded = true;
+    S.sheetError = '';
+    S.loadingSheet = false;
+    updateDataSourceInfo('ok', events.length);
+
+    // Enrichit avec les prix live si l'API est configurée
+    if (S.apiUrl) await enrichWithLivePrices();
+
+    toast(`✅ ${events.length} events chargés depuis Google Sheet`, '📊');
+    render();
+
+  } catch (err) {
+    S.sheetLoaded = false;
+    S.sheetError = err.message;
+    S.loadingSheet = false;
+    updateDataSourceInfo('error', 0, err.message);
+    toast('Erreur Sheet : ' + err.message, '⚠');
+    render();
+  }
+}
+
+function parseSheetCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+
+  const headers = splitCSV(lines[0]).map(h => h.trim().replace(/"/g, '').toLowerCase());
+  let nextId = 1000;
+
+  return lines.slice(1).map(line => {
+    const cols = splitCSV(line);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (cols[i] || '').replace(/"/g, '').trim(); });
+
+    const face = parseFloat(row.face) || 0;
+    const resale = parseFloat(row.resale) || 0;
+    const net = resale * 0.85;
+    const marge = face > 0 ? Math.round(((net - face) / face) * 100) : 0;
+    const score = parseFloat(row.score) || Math.min(Math.max(Math.round(marge / 20 + 5), 5), 10);
+
+    return {
+      id: nextId++,
+      name: row.name || '',
+      sub: row.sub || row.lieu || '',
+      date: row.date || '',
+      h: row.horizon || row.h || 'mid',
+      country: row.country || 'FR',
+      flag: row.flag || '🎫',
+      cat: row.cat || row.category || 'concert',
+      platform: row.platform || '',
+      face, resale, marge, score,
+      starred: false, custom: false, live: false,
+    };
+  }).filter(e => e.name && e.face > 0);
+}
+
+function splitCSV(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') inQuotes = !inQuotes;
+    else if (char === ',' && !inQuotes) { result.push(current); current = ''; }
+    else current += char;
+  }
+  result.push(current);
+  return result;
+}
+
+function updateDataSourceInfo(status, count = 0, error = '') {
+  const el = document.getElementById('data-source-info');
+  if (!el) return;
+
+  const msgs = {
+    'not-configured': '<span style="color:var(--amber)">Sheet non configuré<br>→ onglet Config</span>',
+    'loading': '<span style="color:var(--blue)">⟳ Chargement du Sheet...</span>',
+    'ok': `<span style="color:var(--green)">✓ Sheet connecté<br>${count} events chargés</span>`,
+    'error': `<span style="color:var(--red)">✕ Erreur: ${error}</span>`,
+  };
+  el.innerHTML = msgs[status] || msgs['not-configured'];
+}
+
+/* ══════════════════════════════════════════════
+   LIVE PRICES (API Scraper)
+══════════════════════════════════════════════ */
+async function enrichWithLivePrices() {
+  if (!S.apiUrl) return;
+  try {
+    const res = await fetch(S.apiUrl + '/prices');
     if (!res.ok) return;
     const data = await res.json();
     const prices = data.data || data;
@@ -585,28 +679,6 @@ async function loadSheet() {
     toast('Prix live mis à jour', '📡');
   } catch (err) {
     console.warn('API live prices error:', err);
-  }
-  // Envoie les events à l'API pour alertes Telegram
-  await sendTelegramAlerts();
-}
-
-async function sendTelegramAlerts() {
-  if (!S.apiUrl) return;
-  try {
-    const events = allEvs().map(e => ({
-      name: e.name, flag: e.flag || '🎫',
-      face: e.face, resale: e.resale,
-      date: e.date || '', platform: e.platform || '',
-      cat: e.cat || '', horizon: e.h || ''
-    }));
-    await fetch(S.apiUrl + '/alert/notify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events, seuil: S.seuil })
-    });
-    console.log('[App] Alertes Telegram envoyées');
-  } catch (err) {
-    console.warn('[App] Erreur alertes Telegram:', err);
   }
 }
 
@@ -720,20 +792,6 @@ function onSeuil(v) {
 /* ══════════════════════════════════════════════
    NAV
 ══════════════════════════════════════════════ */
-function updateMobileNav(v) {
-  document.querySelectorAll('.mnav-item').forEach(b => b.classList.remove('active'));
-  const active = document.getElementById('mn-' + v);
-  if (active) active.classList.add('active');
-  // Show back button only when not on dashboard
-  const backBtn = document.getElementById('back-btn');
-  if (backBtn) backBtn.style.display = (v !== 'dashboard') ? 'flex' : 'none';
-}
-
-function navBack() {
-  nav('dashboard', document.getElementById('nav-dashboard'));
-  updateMobileNav('dashboard');
-}
-
 function nav(v, el) {
   S.view = v;
   document.querySelectorAll('.npill').forEach(n => n.classList.remove('active'));
@@ -872,22 +930,20 @@ function renderSettings(c) {
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
         <span class="card-title">📱 Bot Telegram</span>
-        <span class="card-meta">${S.lang==='fr'?'Alertes directes sur ton téléphone':'Direct alerts on your phone'}</span>
+        <span class="card-meta">${S.lang==='fr'?'Alertes instantanées sur ton téléphone':'Instant alerts on your phone'}</span>
       </div>
       <div class="settings-grid">
         <div class="setting-group full">
           <div class="setting-label">TELEGRAM BOT TOKEN</div>
-          <input class="setting-input" id="tg-token-input" placeholder="1234567890:AAGxxx..." value="${S.tgToken}">
-          <div class="setting-desc">${S.lang==='fr'?'Obtenu via @BotFather sur Telegram':'Get it from @BotFather on Telegram'}</div>
+          <input class="setting-input" id="tg-token-input" placeholder="1234567890:AAGxxx..." value="${S.tgToken}" type="password">
         </div>
         <div class="setting-group full">
           <div class="setting-label">TELEGRAM CHAT ID</div>
           <input class="setting-input" id="tg-chatid-input" placeholder="1077939423" value="${S.tgChatId}">
-          <div class="setting-desc">${S.lang==='fr'?'Ton identifiant personnel Telegram':'Your personal Telegram ID'}</div>
         </div>
       </div>
       <div class="form-actions">
-        <button class="btn-ghost" onclick="testTelegramDirect()">📱 ${S.lang==='fr'?'Tester':'Test'}</button>
+        <button class="btn-ghost" onclick="testTgDirect()">📱 ${S.lang==='fr'?'Tester':'Test'}</button>
         <button class="btn-save" onclick="saveTgConfig()">${S.lang==='fr'?'Sauvegarder':'Save'}</button>
       </div>
     </div>
@@ -937,31 +993,27 @@ function renderSettings(c) {
 }
 
 function saveTgConfig() {
-  const token = document.getElementById('tg-token-input')?.value.trim();
-  const chatid = document.getElementById('tg-chatid-input')?.value.trim();
-  if (token) S.tgToken = token;
-  if (chatid) S.tgChatId = chatid;
+  const t = document.getElementById('tg-token-input')?.value.trim();
+  const c = document.getElementById('tg-chatid-input')?.value.trim();
+  if (t) S.tgToken = t;
+  if (c) S.tgChatId = c;
   saveState();
-  toast(S.lang === 'fr' ? 'Config Telegram sauvegardée ✓' : 'Telegram config saved ✓', '📱');
+  toast(S.lang==='fr'?'Config Telegram sauvegardée ✓':'Telegram config saved ✓', '📱');
 }
-
-async function testTelegramDirect() {
+async function testTgDirect() {
   const token = document.getElementById('tg-token-input')?.value.trim() || S.tgToken;
   const chatid = document.getElementById('tg-chatid-input')?.value.trim() || S.tgChatId;
-  if (!token || !chatid) { toast(S.lang==='fr'?'Renseigne le token et le chat ID':'Enter token and chat ID', '⚠'); return; }
+  if (!token || !chatid) { toast('Renseigne le token et le chat ID', '⚠'); return; }
   try {
-    const msg = '🧪 TicketRadar — Test Telegram direct !\n\n✅ Bot connecté depuis l\'app web.\n👉 https://fredericnjoh-lab.github.io/ticketradar/';
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatid, text: msg })
+    const r = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({chat_id: chatid, text: '🧪 TicketRadar — Test OK ! 📱'})
     });
     const d = await r.json();
-    if (d.ok) toast('✓ Message Telegram reçu sur ton téléphone !', '📱');
+    if (d.ok) toast('✓ Message Telegram reçu !', '📱');
     else toast('Erreur : ' + d.description, '⚠');
-  } catch(e) { toast('Erreur réseau : ' + e.message, '⚠'); }
+  } catch(e) { toast('Erreur : ' + e.message, '⚠'); }
 }
-
 function saveSheetUrl() {
   const input = document.getElementById('sheet-url-input');
   if (input) {
@@ -1275,21 +1327,16 @@ function addWl() {
 async function sendTelegramDirect(events, seuil) {
   if (!S.tgToken || !S.tgChatId) return 0;
   let sent = 0;
-  const hits = events
-    .filter(e => e.marge >= seuil)
-    .sort((a, b) => b.marge - a.marge)
-    .slice(0, 5); // Max 5 alertes par scan
+  const hits = events.filter(e => e.marge >= seuil).sort((a,b) => b.marge - a.marge).slice(0,5);
   for (const ev of hits) {
     try {
-      const msg = `🔥 TicketRadar — Nouvelle opportunité !\n\n${ev.flag||'🎫'} ${ev.name}\n💰 Marge : +${ev.marge}%\n🎫 Face : ${ev.face}€ → Revente : ${ev.resale}€\n📅 ${ev.date||''}\n🏪 ${ev.platform||''}\n⚡ Seuil dépassé : +${seuil}%\n\n👉 https://fredericnjoh-lab.github.io/ticketradar/`;
-      const url = `https://api.telegram.org/bot${S.tgToken}/sendMessage`;
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: S.tgChatId, text: msg })
+      const msg = '🔥 TicketRadar — Nouvelle opportunité !\n\n' + (ev.flag||'🎫') + ' ' + ev.name + '\n💰 Marge : +' + ev.marge + '%\n🎫 Face : ' + ev.face + '€ → Revente : ' + ev.resale + '€\n📅 ' + (ev.date||'') + '\n🏪 ' + (ev.platform||'') + '\n\n👉 https://fredericnjoh-lab.github.io/ticketradar/';
+      const r = await fetch('https://api.telegram.org/bot' + S.tgToken + '/sendMessage', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({chat_id: S.tgChatId, text: msg})
       });
-      if (r.ok) sent++;
-    } catch(e) { console.warn('TG error:', e); }
+      if ((await r.json()).ok) sent++;
+    } catch(e) {}
   }
   return sent;
 }
@@ -1305,7 +1352,7 @@ async function runScan() {
   await loadSheet();
   if(S.apiUrl)await enrichWithLivePrices();
   const tgSent = await sendTelegramDirect(allEvs(), S.seuil);
-  if (tgSent > 0) toast(`📱 ${tgSent} alerte(s) Telegram envoyée(s) !`, '📱');
+  if (tgSent > 0) toast('📱 ' + tgSent + ' alerte(s) Telegram !', '📱');
 
   clearInterval(anim);
   btn.classList.remove('loading');
