@@ -193,7 +193,7 @@ async def alert_scan(seuil: int = 30, sheet_url: str = ""):
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(sheet_url + "&cache=" + str(int(time.time())))
-            if not r.ok:
+            if r.status_code != 200:
                 return {"error": f"HTTP {r.status_code}"}
             text = r.text
 
