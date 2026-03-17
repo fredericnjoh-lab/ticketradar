@@ -560,12 +560,21 @@ async function loadSheet() {
   render();
 
   try {
-    // Proxy CORS allorigins pour contourner les restrictions GitHub Pages
-    const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(S.sheetUrl);
-    const res = await fetch(proxyUrl, {
-      method: 'GET',
-      cache: 'no-store'
-    });
+    // Essaie plusieurs proxies CORS en cascade
+    let res = null;
+    const proxies = [
+      'https://corsproxy.io/?' + encodeURIComponent(S.sheetUrl),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(S.sheetUrl),
+      'https://cors-anywhere.herokuapp.com/' + S.sheetUrl,
+      S.sheetUrl  // direct en dernier recours
+    ];
+    for (const url of proxies) {
+      try {
+        res = await fetch(url, { method: 'GET', cache: 'no-store' });
+        if (res.ok) break;
+      } catch(e) { continue; }
+    }
+    if (!res || !res.ok) throw new Error('Failed to fetch via all proxies');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
     const events = parseSheetCSV(text);
