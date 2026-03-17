@@ -1,158 +1,177 @@
 /* ═══════════════════════════════════════════════════
-   TicketRadar — Service Worker v4
-   Tourne en arrière-plan, même quand l'onglet est fermé.
-   Vérifie le Google Sheet toutes les heures.
-   Envoie une notification push si marge > seuil.
+   TicketRadar — Service Worker v4.1
+   Scan automatique toutes les heures.
+   Envoie les alertes Telegram si marge > seuil.
 ═══════════════════════════════════════════════════ */
 
 const CACHE_NAME = 'ticketradar-v4';
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 heure
 
-/* ── Installation ── */
-self.addEventListener('install', e => {
-  self.skipWaiting();
-});
-
+self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => {
   e.waitUntil(clients.claim());
-  // Lance le premier check immédiatement
   scheduleCheck();
 });
 
-/* ── Messages depuis l'app principale ── */
+/* ── Config reçue depuis l'app ── */
 self.addEventListener('message', e => {
   if (e.data?.type === 'CONFIG') {
-    // Reçoit la config (seuil, URL Sheet) depuis l'app
     self.CONFIG = e.data.payload;
     console.log('[SW] Config reçue:', self.CONFIG);
   }
   if (e.data?.type === 'CHECK_NOW') {
-    checkForOpportunities();
+    checkAndAlert();
   }
 });
 
-/* ── Scheduler ── */
+/* ── Scheduler toutes les heures ── */
 function scheduleCheck() {
-  setInterval(checkForOpportunities, CHECK_INTERVAL_MS);
-  // Premier check après 5 secondes
-  setTimeout(checkForOpportunities, 5000);
+  setInterval(checkAndAlert, CHECK_INTERVAL_MS);
+  setTimeout(checkAndAlert, 10000); // Premier check après 10s
 }
 
 /* ── Check principal ── */
-async function checkForOpportunities() {
+async function checkAndAlert() {
   const config = self.CONFIG;
-  if (!config?.sheetUrl) return;
+  if (!config?.sheetUrl || !config?.tgToken || !config?.tgChatId) {
+    console.log('[SW] Config incomplète — skip');
+    return;
+  }
 
   try {
-    const res = await fetch(config.sheetUrl + '&t=' + Date.now());
-    if (!res.ok) return;
+    console.log('[SW] Scan en cours...');
+
+    // Fetch le Google Sheet via Apps Script
+    const res = await fetch(config.sheetUrl, { cache: 'no-store' });
+    if (!res.ok) { console.log('[SW] Fetch failed:', res.status); return; }
 
     const text = await res.text();
-    const events = parseCSV(text);
-    const threshold = config.seuil || 30;
+    const events = parseData(text);
+    if (!events.length) { console.log('[SW] Aucun event'); return; }
 
-    // Filtre les opportunités au-dessus du seuil
-    const hits = events.filter(e => {
-      const marge = parseFloat(e.marge);
-      return !isNaN(marge) && marge >= threshold;
-    });
+    const seuil = config.seuil || 30;
 
-    if (hits.length === 0) return;
+    // Calcule les marges et filtre
+    const hits = events
+      .map(ev => {
+        const face = parseFloat(ev.face) || 0;
+        const resale = parseFloat(ev.resale) || 0;
+        if (!face || !resale) return null;
+        const marge = Math.round(((resale * 0.85 - face) / face) * 100);
+        return { ...ev, marge };
+      })
+      .filter(ev => ev && ev.marge >= seuil)
+      .sort((a, b) => b.marge - a.marge);
 
-    // Évite de re-notifier les mêmes events (anti-spam)
+    if (!hits.length) { console.log('[SW] Aucune opportunité > ' + seuil + '%'); return; }
+
+    // Anti-spam — ne re-notifie pas les mêmes events
     const cache = await caches.open(CACHE_NAME);
-    const notified = await getNotifiedKeys(cache);
-    const newHits = hits.filter(e => !notified.includes(e.name + e.marge));
+    const notified = await getNotified(cache);
+    const newHits = hits.filter(ev => !notified.includes(ev.name + '_' + ev.marge));
 
-    if (newHits.length === 0) return;
+    if (!newHits.length) { console.log('[SW] Déjà notifié'); return; }
 
-    // Trie par marge décroissante
-    newHits.sort((a, b) => parseFloat(b.marge) - parseFloat(a.marge));
-    const top = newHits[0];
+    // Envoie max 3 alertes Telegram par scan
+    let sent = 0;
+    for (const ev of newHits.slice(0, 3)) {
+      const msg =
+        '🔥 TicketRadar — Nouvelle opportunité !\n\n' +
+        (ev.flag || '🎫') + ' ' + ev.name + '\n' +
+        '💰 Marge : +' + ev.marge + '%\n' +
+        '🎫 Face : ' + ev.face + '€ → Revente : ' + ev.resale + '€\n' +
+        '📅 ' + (ev.date || '') + '\n' +
+        '🏪 ' + (ev.platform || '') + '\n' +
+        '⚡ Seuil : +' + seuil + '%\n\n' +
+        '👉 https://fredericnjoh-lab.github.io/ticketradar/';
 
-    // Envoie la notification
-    await self.registration.showNotification('🔥 TicketRadar — Nouvelle opportunité !', {
-      body: `${top.flag || ''} ${top.name} — +${top.marge}% de marge\n${top.date || ''} · ${top.platform || ''}`,
-      icon: '/ticketradar/icon-192.png',
-      badge: '/ticketradar/icon-72.png',
-      tag: 'ticketradar-alert',
-      renotify: true,
-      data: { url: self.location.origin + '/ticketradar/' },
-      actions: [
-        { action: 'open', title: 'Voir l\'opportunité' },
-        { action: 'dismiss', title: 'Ignorer' }
-      ]
-    });
+      try {
+        const r = await fetch(
+          'https://api.telegram.org/bot' + config.tgToken + '/sendMessage',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: config.tgChatId, text: msg })
+          }
+        );
+        const d = await r.json();
+        if (d.ok) {
+          sent++;
+          await markNotified(cache, ev.name + '_' + ev.marge);
+          console.log('[SW] ✓ Alerte envoyée:', ev.name);
+        }
+      } catch (e) {
+        console.log('[SW] Erreur Telegram:', e.message);
+      }
+    }
 
-    // Marque comme notifié
-    for (const hit of newHits) {
-      await markNotified(cache, hit.name + hit.marge);
+    console.log('[SW] Scan terminé —', sent, 'alertes envoyées');
+
+    // Notification push navigateur en bonus
+    if (sent > 0 && newHits[0]) {
+      const top = newHits[0];
+      try {
+        await self.registration.showNotification('🔥 TicketRadar — ' + top.name, {
+          body: '+' + top.marge + '% · ' + top.platform,
+          icon: '/ticketradar/icon-192.png',
+          tag: 'ticketradar-auto',
+          data: { url: 'https://fredericnjoh-lab.github.io/ticketradar/' }
+        });
+      } catch(e) {}
     }
 
   } catch (err) {
-    console.error('[SW] Erreur check:', err);
+    console.error('[SW] Erreur:', err);
   }
 }
 
 /* ── Notification click ── */
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  if (e.action === 'dismiss') return;
-
-  const url = e.notification.data?.url || self.location.origin + '/ticketradar/';
+  const url = e.notification.data?.url || 'https://fredericnjoh-lab.github.io/ticketradar/';
   e.waitUntil(
-    clients.matchAll({ type: 'window' }).then(clientList => {
-      // Ouvre ou focus l'app
-      for (const client of clientList) {
-        if (client.url.includes('/ticketradar') && 'focus' in client) {
-          return client.focus();
-        }
+    clients.matchAll({ type: 'window' }).then(list => {
+      for (const c of list) {
+        if (c.url.includes('/ticketradar') && 'focus' in c) return c.focus();
       }
       return clients.openWindow(url);
     })
   );
 });
 
-/* ── Parsing CSV ── */
-function parseCSV(text) {
-  const lines = text.trim().split('\n');
+/* ── Parse JSON (Apps Script) ou CSV ── */
+function parseData(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('[')) {
+    try { return JSON.parse(trimmed); } catch(e) {}
+  }
+  // CSV fallback
+  const lines = trimmed.split('\n');
   if (lines.length < 2) return [];
-
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
   return lines.slice(1).map(line => {
-    const cols = splitCSVLine(line);
+    const cols = line.split(',');
     const obj = {};
     headers.forEach((h, i) => { obj[h] = (cols[i] || '').replace(/"/g, '').trim(); });
     return obj;
-  }).filter(e => e.name);
+  }).filter(r => r.name);
 }
 
-function splitCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-  for (const char of line) {
-    if (char === '"') { inQuotes = !inQuotes; }
-    else if (char === ',' && !inQuotes) { result.push(current); current = ''; }
-    else { current += char; }
-  }
-  result.push(current);
-  return result;
-}
-
-/* ── Anti-spam cache ── */
-async function getNotifiedKeys(cache) {
-  const res = await cache.match('__notified__');
-  if (!res) return [];
-  return res.json();
+/* ── Anti-spam ── */
+async function getNotified(cache) {
+  try {
+    const r = await cache.match('__notified__');
+    if (!r) return [];
+    return await r.json();
+  } catch { return []; }
 }
 
 async function markNotified(cache, key) {
-  const keys = await getNotifiedKeys(cache);
-  if (!keys.includes(key)) {
-    keys.push(key);
-    // Garde seulement les 100 dernières
-    const trimmed = keys.slice(-100);
-    await cache.put('__notified__', new Response(JSON.stringify(trimmed)));
-  }
+  try {
+    const keys = await getNotified(cache);
+    if (!keys.includes(key)) {
+      keys.push(key);
+      await cache.put('__notified__', new Response(JSON.stringify(keys.slice(-200))));
+    }
+  } catch {}
 }
