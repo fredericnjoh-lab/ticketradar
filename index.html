@@ -560,13 +560,11 @@ async function loadSheet() {
   render();
 
   try {
-    // iOS Safari PWA needs explicit CORS mode + cache bypass
-    const fetchUrl = S.sheetUrl + (S.sheetUrl.includes('?') ? '&' : '?') + 'cache=' + Date.now();
-    const res = await fetch(fetchUrl, {
+    // Proxy CORS allorigins pour contourner les restrictions GitHub Pages
+    const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(S.sheetUrl);
+    const res = await fetch(proxyUrl, {
       method: 'GET',
-      mode: 'cors',
-      cache: 'no-store',
-      headers: { 'Accept': 'text/csv,text/plain,*/*' }
+      cache: 'no-store'
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
