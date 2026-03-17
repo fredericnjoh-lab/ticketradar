@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TicketRadar — Resale Intelligence v4</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- ══════════════════════════════════════════
+       CONFIGURATION — MODIFIE CES 2 LIGNES
+  ══════════════════════════════════════════ -->
+  <script>
+    // 1. URL CSV de ton Google Sheet (Fichier → Partager → Publier sur le web → CSV)
+    const SHEET_CSV_URL = "COLLE_ICI_L_URL_CSV_DE_TON_SHEET";
+
+    // 2. URL de ton API de scraping sur Railway/Render (laisser vide si pas encore déployé)
+    const SCRAPER_API_URL = "";
+    // Exemple : "https://ticketradar-api.railway.app"
+  </script>
+  <!-- ════════════════════════════════════════ -->
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#08080e;--bg2:#0f0f18;--bg3:#16161f;--bg4:#1c1c28;--bg5:#222232;
+      --border:#25253a;--border2:#35355a;--border3:#45456a;
+      --text:#f0f0f8;--text2:#9898b8;--text3:#55556a;--text4:#38384a;
+      --accent:#6c63ff;--accent2:#8b84ff;--accent3:#aba4ff;--accentbg:rgba(108,99,255,.12);
+      --green:#22d3a0;--greenbg:rgba(34,211,160,.1);--greenbdr:rgba(34,211,160,.25);
+      --amber:#f4a836;--amberbg:rgba(244,168,54,.1);--amberbdr:rgba(244,168,54,.25);
+      --red:#f06060;--redbg:rgba(240,96,96,.1);--redbdr:rgba(240,96,96,.25);
+      --blue:#60a8f0;--bluebg:rgba(96,168,240,.1);
+      --purple:#c084fc;--purplebg:rgba(192,132,252,.1);
+      --mono:'JetBrains Mono',monospace;--head:'Space Grotesk',sans-serif;
+      --r6:6px;--r10:10px;--r14:14px;--r20:20px;
+    }
+    html,body{height:100%;}
+    body{background:var(--bg);color:var(--text);font-family:var(--head);font-size:13px;line-height:1.5;}
+    input,select,button{font-family:var(--head);}
+    ::-webkit-scrollbar{width:6px;height:6px;}
+    ::-webkit-scrollbar-track{background:var(--bg2);}
+    ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+
+    /* ── TOPBAR ── */
+    .topbar{display:flex;align-items:center;gap:12px;padding:0 20px;height:56px;border-bottom:1px solid var(--border);background:rgba(8,8,14,.97);position:sticky;top:0;z-index:100;}
+    .logo-mark{width:32px;height:32px;background:var(--accent);border-radius:var(--r10);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;}
+    .logo-name{font-size:15px;font-weight:700;letter-spacing:-.03em;}
+    .logo-tag{font-size:9.5px;color:var(--text3);font-family:var(--mono);}
+    .topbar-center{flex:1;display:flex;justify-content:center;}
+    .nav-pills{display:flex;gap:2px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:3px;}
+    .npill{padding:5px 13px;border-radius:var(--r6);font-size:11.5px;font-weight:500;cursor:pointer;color:var(--text2);border:none;background:transparent;transition:all .15s;white-space:nowrap;}
+    .npill:hover{color:var(--text);}
+    .npill.active{background:var(--bg5);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.5);}
+    .topbar-right{display:flex;align-items:center;gap:8px;}
+    .lang-toggle{display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r6);overflow:hidden;}
+    .lang-btn{padding:5px 10px;font-size:10.5px;font-weight:600;cursor:pointer;color:var(--text3);border:none;background:transparent;transition:all .15s;font-family:var(--mono);}
+    .lang-btn.active{background:var(--accent);color:#fff;}
+    .pulse{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;position:relative;}
+    .pulse::after{content:'';position:absolute;inset:-3px;border-radius:50%;border:1px solid var(--green);animation:ping 2s ease-out infinite;opacity:0;}
+    @keyframes ping{0%{transform:scale(.8);opacity:.8;}100%{transform:scale(2);opacity:0;}}
+    #status-lbl{font-size:10.5px;color:var(--text3);font-family:var(--mono);}
+    .scan-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r10);background:var(--accent);border:none;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+    .scan-btn:hover{background:var(--accent2);}
+    .scan-btn.loading{opacity:.6;pointer-events:none;}
+    .spin{display:inline-block;}
+    .scan-btn.loading .spin{animation:spin .6s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+
+    /* ── LAYOUT ── */
+    .shell{display:flex;min-height:calc(100vh - 56px);}
+    .sidebar{width:210px;border-right:1px solid var(--border);padding:16px 10px;flex-shrink:0;display:flex;flex-direction:column;gap:20px;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto;}
+    .content{flex:1;padding:20px;overflow-y:auto;}
+
+    /* ── SIDEBAR ── */
+    .sb-lbl{font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--text4);padding:0 8px;margin-bottom:4px;font-family:var(--mono);}
+    .sb-mkt{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:var(--r6);cursor:pointer;transition:background .1s;}
+    .sb-mkt:hover{background:var(--bg3);}
+    .sb-mkt-label{font-size:11.5px;color:var(--text2);}
+    .sb-mkt.on .sb-mkt-label{color:var(--text);}
+    .tog{width:28px;height:15px;border-radius:8px;background:var(--border2);position:relative;transition:background .2s;flex-shrink:0;}
+    .tog.on{background:var(--accent);}
+    .tog::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff;transition:left .18s;}
+    .tog.on::after{left:15px;}
+    .seuil-wrap{padding:0 8px;}
+    .seuil-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+    #seuil-val{font-size:11.5px;font-family:var(--mono);color:var(--accent3);}
+    input[type="range"]{width:100%;accent-color:var(--accent);cursor:pointer;}
+
+    /* ── STATUS BANNERS ── */
+    .banner{display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:var(--r10);margin-bottom:14px;font-size:12px;}
+    .banner-loading{background:var(--amberbg);border:1px solid var(--amberbdr);color:var(--amber);}
+    .banner-ok{background:var(--greenbg);border:1px solid var(--greenbdr);color:var(--green);}
+    .banner-error{background:var(--redbg);border:1px solid var(--redbdr);color:var(--red);}
+    .banner-info{background:var(--bluebg);border:1px solid rgba(96,168,240,.25);color:var(--blue);}
+    .banner-pulse{width:8px;height:8px;border-radius:50%;flex-shrink:0;animation:ping 1.5s ease-out infinite;}
+    .banner-loading .banner-pulse{background:var(--amber);}
+    .banner-ok .banner-pulse{background:var(--green);}
+
+    /* ── SETTINGS PANEL ── */
+    .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:18px;}
+    .setting-group{display:flex;flex-direction:column;gap:6px;}
+    .setting-group.full{grid-column:1/-1;}
+    .setting-label{font-size:10px;font-family:var(--mono);color:var(--text3);letter-spacing:.04em;}
+    .setting-input{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:9px 13px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none;transition:border-color .15s;width:100%;}
+    .setting-input:focus{border-color:var(--accent);}
+    .setting-desc{font-size:10px;color:var(--text4);font-family:var(--mono);margin-top:2px;}
+    .btn-save{background:var(--accent);color:#fff;border:none;border-radius:var(--r10);padding:9px 20px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .15s;}
+    .btn-save:hover{background:var(--accent2);}
+    .btn-secondary{background:transparent;color:var(--text2);border:1px solid var(--border2);border-radius:var(--r10);padding:9px 16px;font-size:12.5px;cursor:pointer;transition:all .15s;}
+    .btn-secondary:hover{border-color:var(--border3);color:var(--text);}
+
+    /* ── PUSH NOTIF PANEL ── */
+    .notif-status{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border);}
+    .notif-icon{width:40px;height:40px;border-radius:var(--r10);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+    .ni-ok{background:var(--greenbg);border:1px solid var(--greenbdr);}
+    .ni-off{background:var(--bg3);border:1px solid var(--border);}
+    .ni-warn{background:var(--amberbg);border:1px solid var(--amberbdr);}
+    .notif-name{font-size:13px;font-weight:600;}
+    .notif-sub{font-size:10.5px;color:var(--text3);font-family:var(--mono);margin-top:2px;}
+    .btn-notif{padding:8px 16px;border-radius:var(--r10);font-size:12px;font-weight:600;cursor:pointer;border:none;font-family:var(--head);transition:all .15s;}
+    .btn-notif-on{background:var(--accent);color:#fff;}
+    .btn-notif-on:hover{background:var(--accent2);}
+    .btn-notif-off{background:var(--redbg);color:var(--red);border:1px solid var(--redbdr);}
+
+    /* ── KPI CARDS ── */
+    .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;}
+    .kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r14);padding:14px 16px;position:relative;overflow:hidden;transition:border-color .2s;}
+    .kpi-card:hover{border-color:var(--border2);}
+    .kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+    .kc-green::before{background:var(--green);}.kc-accent::before{background:var(--accent);}
+    .kc-amber::before{background:var(--amber);}.kc-blue::before{background:var(--blue);}
+    .kc-purple::before{background:var(--purple);}
+    .kpi-lbl{font-size:9.5px;font-weight:500;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;font-family:var(--mono);}
+    .kpi-val{font-size:24px;font-weight:700;font-family:var(--mono);line-height:1;}
+    .kpi-sub{font-size:9.5px;color:var(--text3);margin-top:5px;}
+    .kpi-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-family:var(--mono);padding:2px 7px;border-radius:4px;margin-top:6px;}
+    .kb-up{background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);}
+    .kb-warn{background:var(--amberbg);color:var(--amber);border:1px solid var(--amberbdr);}
+
+    /* ── CARD ── */
+    .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r20);overflow:hidden;margin-bottom:16px;}
+    .card-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);}
+    .card-title{font-size:13px;font-weight:600;}
+    .card-meta{font-size:10.5px;color:var(--text3);font-family:var(--mono);}
+    .card-act{font-size:11px;color:var(--accent3);cursor:pointer;font-weight:500;}
+
+    /* ── TABLE ── */
+    .tbl-wrap{overflow-x:auto;}
+    table{width:100%;border-collapse:collapse;}
+    thead th{padding:9px 14px;font-size:9.5px;font-family:var(--mono);color:var(--text4);letter-spacing:.06em;text-align:left;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
+    thead th:hover{color:var(--text2);}
+    thead th.sorted{color:var(--accent3);}
+    tbody tr{border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;}
+    tbody tr:hover{background:var(--bg3);}
+    tbody tr:last-child{border-bottom:none;}
+    td{padding:11px 14px;vertical-align:middle;}
+    .ev-name{font-weight:600;font-size:12.5px;}
+    .ev-sub{font-size:10.5px;color:var(--text3);margin-top:2px;font-family:var(--mono);}
+    .cat-tag{display:inline-block;font-size:9.5px;font-family:var(--mono);font-weight:500;padding:2.5px 7px;border-radius:5px;}
+    .ct-f1{background:rgba(244,168,54,.12);color:var(--amber);border:1px solid rgba(244,168,54,.2);}
+    .ct-mma{background:var(--redbg);color:var(--red);border:1px solid var(--redbdr);}
+    .ct-concert{background:var(--accentbg);color:var(--accent3);border:1px solid rgba(108,99,255,.2);}
+    .ct-sport{background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);}
+    .ct-custom{background:var(--purplebg);color:var(--purple);border:1px solid rgba(192,132,252,.2);}
+    .hdot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;margin-right:5px;}
+    .hn{background:var(--red);}.hm{background:var(--amber);}.hf{background:var(--green);}
+    .mf{font-family:var(--mono);font-size:11.5px;color:var(--text3);}
+    .mr{font-family:var(--mono);font-size:11.5px;font-weight:500;}
+    .mb{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;}
+    .mb-hot{background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);}
+    .mb-mid{background:var(--amberbg);color:var(--amber);border:1px solid var(--amberbdr);}
+    .mb-low{background:var(--bg4);color:var(--text3);}
+    .live-badge{font-size:8.5px;font-family:var(--mono);background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);padding:1px 5px;border-radius:4px;margin-left:4px;vertical-align:middle;}
+    .score-row{display:flex;align-items:center;gap:7px;}
+    .score-bg{width:44px;height:4px;background:var(--bg5);border-radius:2px;}
+    .score-fg{height:100%;border-radius:2px;}
+    .score-n{font-family:var(--mono);font-size:11px;min-width:24px;}
+    .star-btn{background:none;border:none;cursor:pointer;font-size:13px;opacity:.25;transition:opacity .15s;padding:2px 5px;}
+    .star-btn:hover,.star-btn.on{opacity:1;}
+    .plat-tag{font-size:9.5px;font-family:var(--mono);color:var(--text3);background:var(--bg4);padding:2px 7px;border-radius:5px;border:1px solid var(--border);}
+
+    /* ── CHART ── */
+    .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+    .chart-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r20);padding:18px 20px;}
+    .chart-title{font-size:13px;font-weight:600;margin-bottom:2px;}
+    .chart-sub{font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:14px;}
+    .legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;}
+    .leg-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);}
+    .leg-sq{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+
+    /* ── ALERTS ── */
+    .alert-row{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border);transition:background .1s;}
+    .alert-row:hover{background:var(--bg3);}
+    .alert-row:last-child{border-bottom:none;}
+    .alert-icon{width:34px;height:34px;border-radius:var(--r10);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+    .ai-green{background:var(--greenbg);border:1px solid var(--greenbdr);}
+    .ai-amber{background:var(--amberbg);border:1px solid var(--amberbdr);}
+    .ai-blue{background:var(--bluebg);border:1px solid rgba(96,168,240,.25);}
+    .alert-name{font-size:12.5px;font-weight:600;}
+    .alert-desc{font-size:10.5px;color:var(--text3);margin-top:2px;font-family:var(--mono);}
+    .alert-time{font-size:10px;color:var(--text4);font-family:var(--mono);flex-shrink:0;}
+
+    /* ── TOOLBAR ── */
+    .toolbar{display:flex;align-items:center;gap:6px;padding:10px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+    .fchip{font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;transition:all .12s;white-space:nowrap;}
+    .fchip:hover{border-color:var(--border3);color:var(--text2);}
+    .fchip.on{border-color:var(--accent);background:var(--accentbg);color:var(--accent3);}
+    .vsep{width:1px;height:18px;background:var(--border);margin:0 2px;flex-shrink:0;}
+    .search-box{margin-left:auto;display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:6px 12px;transition:border-color .15s;}
+    .search-box:focus-within{border-color:var(--border3);}
+    .search-box input{background:none;border:none;outline:none;color:var(--text);font-size:12px;width:150px;}
+    .search-box input::placeholder{color:var(--text4);}
+
+    /* ── FORM ── */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px;}
+    .form-group{display:flex;flex-direction:column;gap:5px;}
+    .form-group.full{grid-column:1/-1;}
+    .form-label{font-size:10px;font-family:var(--mono);color:var(--text3);letter-spacing:.04em;}
+    .form-input,.form-select{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:9px 13px;color:var(--text);font-size:12.5px;outline:none;transition:border-color .15s;width:100%;}
+    .form-input:focus,.form-select:focus{border-color:var(--accent);}
+    .form-select option{background:var(--bg3);}
+    .form-preview{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:12px 16px;font-size:12px;color:var(--text3);font-family:var(--mono);margin:0 18px 4px;}
+    .form-actions{display:flex;gap:8px;padding:12px 18px;justify-content:flex-end;border-top:1px solid var(--border);}
+    .btn-primary{background:var(--accent);color:#fff;border:none;border-radius:var(--r10);padding:9px 20px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .15s;}
+    .btn-primary:hover{background:var(--accent2);}
+    .btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2);border-radius:var(--r10);padding:9px 16px;font-size:12.5px;cursor:pointer;transition:all .15s;}
+
+    /* ── ROI ── */
+    .roi-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:20px;}
+    .roi-fields{display:flex;flex-direction:column;gap:12px;}
+    .roi-field{display:grid;grid-template-columns:145px 1fr 55px;align-items:center;gap:10px;}
+    .roi-lbl{font-size:11.5px;color:var(--text3);font-family:var(--mono);}
+    .roi-inp{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:9px 13px;color:var(--text);font-size:14px;font-family:var(--mono);outline:none;transition:border-color .15s;width:100%;}
+    .roi-inp:focus{border-color:var(--accent);}
+    .roi-unit{font-size:11.5px;color:var(--text3);font-family:var(--mono);}
+    .roi-result{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r14);padding:20px;display:flex;flex-direction:column;gap:12px;}
+    .roi-big{font-size:38px;font-weight:700;font-family:var(--mono);line-height:1;}
+    .roi-sublbl{font-size:10px;color:var(--text3);font-family:var(--mono);}
+    .roi-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+    .roi-stat{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r10);padding:12px 14px;}
+    .roi-stat-lbl{font-size:9.5px;color:var(--text4);font-family:var(--mono);letter-spacing:.04em;margin-bottom:5px;}
+    .roi-stat-val{font-size:16px;font-weight:700;font-family:var(--mono);}
+    .timeline-bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden;}
+    .timeline-fill{height:100%;border-radius:4px;background:var(--green);transition:width .4s;}
+
+    /* ── CURRENCY ── */
+    .curr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 18px;}
+    .curr-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r14);padding:14px 16px;}
+    .curr-pair{font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:6px;}
+    .curr-rate{font-size:20px;font-weight:700;font-family:var(--mono);}
+    .curr-conv-row{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--border);flex-wrap:wrap;}
+    .curr-inp{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:8px 12px;color:var(--text);font-size:14px;font-family:var(--mono);outline:none;width:110px;transition:border-color .15s;}
+    .curr-inp:focus{border-color:var(--accent);}
+    .curr-results{display:flex;gap:10px;flex-wrap:wrap;}
+    .curr-res-item{background:var(--bg4);border-radius:var(--r6);padding:7px 14px;font-family:var(--mono);font-size:13px;}
+
+    /* ── COMPARATOR ── */
+    .comp-search-row{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);}
+    .comp-inp{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:9px 14px;color:var(--text);font-size:12.5px;outline:none;transition:border-color .15s;}
+    .comp-inp:focus{border-color:var(--accent);}
+    .comp-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:16px 18px;}
+    .comp-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r14);overflow:hidden;transition:border-color .2s;}
+    .comp-card:hover{border-color:var(--border2);}
+    .comp-card-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);}
+    .plat-logo{width:30px;height:30px;border-radius:var(--r6);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;}
+    .comp-plat-name{font-size:13px;font-weight:600;}
+    .comp-plat-sub{font-size:9.5px;color:var(--text3);font-family:var(--mono);}
+    .comp-badge{margin-left:auto;font-size:9px;font-family:var(--mono);padding:2px 8px;border-radius:5px;font-weight:500;}
+    .comp-rows{padding:8px 0;}
+    .comp-row{display:flex;align-items:center;justify-content:space-between;padding:7px 16px;}
+    .comp-row-lbl{font-size:11px;color:var(--text3);min-width:90px;}
+    .comp-row-bar{display:flex;align-items:center;gap:8px;flex:1;margin:0 10px;}
+    .comp-bar-track{flex:1;height:4px;background:var(--border);border-radius:2px;}
+    .comp-bar-fill{height:100%;border-radius:2px;transition:width .4s;}
+    .comp-row-val{font-size:12px;font-weight:600;font-family:var(--mono);min-width:60px;text-align:right;}
+    .comp-pros-cons{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 16px;}
+    .comp-pros,.comp-cons{border-radius:var(--r6);padding:8px 10px;font-size:10px;}
+    .comp-pros{background:var(--greenbg);border:1px solid var(--greenbdr);}
+    .comp-cons{background:var(--redbg);border:1px solid var(--redbdr);}
+    .comp-pc-lbl{font-weight:600;font-family:var(--mono);margin-bottom:4px;}
+    .comp-pc-lbl.g{color:var(--green);}.comp-pc-lbl.r{color:var(--red);}
+    .comp-pc-item{color:var(--text2);margin-top:2px;}
+    .comp-footer{font-size:9.5px;color:var(--text4);font-family:var(--mono);padding:8px 16px;border-top:1px solid var(--border);}
+
+    /* ── WATCHLIST ── */
+    .wl-inp-row{display:flex;gap:8px;padding:13px 18px;border-bottom:1px solid var(--border);}
+    .wl-inp{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:8px 13px;color:var(--text);font-size:12.5px;outline:none;transition:border-color .15s;}
+    .wl-inp:focus{border-color:var(--accent);}
+    .wl-add-btn{background:var(--accent);color:#fff;border:none;border-radius:var(--r10);padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
+    .wl-add-btn:hover{background:var(--accent2);}
+    .wl-item{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border);transition:background .1s;}
+    .wl-item:hover{background:var(--bg3);}
+    .wl-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+    .wl-name{font-size:13px;font-weight:600;flex:1;}
+    .wl-meta{font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:2px;}
+    .wl-del{background:none;border:none;color:var(--text4);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;transition:all .15s;}
+    .wl-del:hover{background:var(--redbg);color:var(--red);}
+
+    /* ── CUSTOM EVENTS ── */
+    .cev-item{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border);transition:background .1s;}
+    .cev-item:hover{background:var(--bg3);}
+    .cev-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+    .cev-name{font-size:12.5px;font-weight:600;flex:1;}
+    .cev-meta{font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:2px;}
+    .del-btn{background:none;border:none;color:var(--text4);cursor:pointer;font-size:12px;padding:3px 7px;border-radius:5px;transition:all .15s;}
+    .del-btn:hover{background:var(--redbg);color:var(--red);}
+
+    .empty{padding:48px;text-align:center;color:var(--text4);}
+    .empty-icon{font-size:30px;margin-bottom:12px;opacity:.4;}
+
+    .toast{position:fixed;bottom:24px;right:24px;background:var(--bg5);border:1px solid var(--border2);border-radius:var(--r10);padding:10px 16px;font-size:12.5px;display:flex;align-items:center;gap:8px;z-index:999;opacity:0;transform:translateY(8px);transition:all .2s;pointer-events:none;max-width:340px;}
+    .toast.show{opacity:1;transform:translateY(0);}
+
+    @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr);}.chart-grid,.roi-grid,.comp-grid{grid-template-columns:1fr;}.sidebar{display:none;}}
+    @media(max-width:640px){.topbar-center{display:none;}.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+
+    /* ── MOBILE BOTTOM NAV ── */
+    .mobile-nav{position:fixed;bottom:0;left:0;right:0;z-index:200;background:rgba(8,8,14,.97);border-top:1px solid var(--border);padding:6px 4px;padding-bottom:env(safe-area-inset-bottom,6px);display:none;justify-content:space-around;align-items:center;}
+    .mnav-item{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 6px;border-radius:var(--r10);cursor:pointer;transition:all .15s;border:none;background:transparent;min-width:40px;}
+    .mnav-icon{font-size:18px;line-height:1;}
+    .mnav-label{font-size:8.5px;color:var(--text3);font-family:var(--mono);}
+    .mnav-item.active .mnav-label{color:var(--accent3);}
+    .mnav-item.active .mnav-icon{filter:drop-shadow(0 0 4px var(--accent));}
+    @media(max-width:640px){.mobile-nav{display:flex;}.content{padding-bottom:80px;}}
+    @media(min-width:641px){.mobile-nav{display:none!important;}}
+
+    /* ── BACK BUTTON (PWA standalone) ── */
+    .back-btn{display:none;align-items:center;gap:4px;padding:5px 10px;border-radius:var(--r10);background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+    .back-btn:hover{border-color:var(--border2);color:var(--text);}
+    @media(max-width:640px){.back-btn{display:flex;}}
+  </style>
+</head>
+<body>
+
+<div class="toast" id="toast"><span id="t-icon"></span><span id="t-msg"></span></div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:9px;">
+    <div class="logo-mark">TR</div>
+    <div><div class="logo-name">TicketRadar</div><div class="logo-tag">resale intelligence v4</div></div>
+  </div>
+  <div class="topbar-center">
+    <div class="nav-pills">
+      <button class="npill active" onclick="nav('dashboard',this)" id="nav-dashboard">Dashboard</button>
+      <button class="npill" onclick="nav('events',this)" id="nav-events">Événements</button>
+      <button class="npill" onclick="nav('add',this)" id="nav-add">+ Ajouter</button>
+      <button class="npill" onclick="nav('roi',this)" id="nav-roi">ROI / Devises</button>
+      <button class="npill" onclick="nav('compare',this)" id="nav-compare">Comparateur</button>
+      <button class="npill" onclick="nav('watchlist',this)" id="nav-watchlist">Watchlist</button>
+      <button class="npill" onclick="nav('settings',this)" id="nav-settings">⚙ Config</button>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="back-btn" id="back-btn" onclick="navBack()" style="display:none;">← Retour</button>
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="lb-fr" onclick="setLang('fr')">FR</button>
+      <button class="lang-btn" id="lb-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="pulse" id="pulse-dot"></div>
+    <span id="status-lbl">chargement...</span>
+    <button class="scan-btn" id="scan-btn" onclick="runScan()">
+      <span class="spin" id="scan-ic">⟳</span>
+      <span id="scan-lbl">Scanner</span>
+    </button>
+  </div>
+</div>
+
+<div class="shell">
+  <div class="sidebar">
+    <div><div class="sb-lbl" id="sb-mkt-lbl">MARCHÉS</div><div id="mkt-list"></div></div>
+    <div>
+      <div class="sb-lbl" id="sb-seuil-lbl">SEUIL ALERTE</div>
+      <div class="seuil-wrap">
+        <div class="seuil-row"><span style="font-size:11px;color:var(--text2)" id="sb-min-lbl">marge min.</span><span id="seuil-val">+30%</span></div>
+        <input type="range" min="10" max="200" step="5" value="30" id="seuil" oninput="onSeuil(this.value)">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text4);font-family:var(--mono);margin-top:3px"><span>10%</span><span>200%</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="sb-lbl">SOURCE DONNÉES</div>
+      <div style="padding:0 8px;">
+        <div id="data-source-info" style="font-size:10.5px;color:var(--text3);line-height:1.6;">
+          En attente de<br>configuration...
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="sb-lbl">NOTIFICATIONS</div>
+      <div style="padding:0 8px;">
+        <div id="notif-sidebar" style="font-size:10.5px;color:var(--text3);">Non activées</div>
+        <button onclick="nav('settings',document.getElementById('nav-settings'))" style="margin-top:6px;background:var(--accentbg);border:1px solid var(--accent);border-radius:var(--r6);padding:4px 10px;font-size:10px;color:var(--accent3);cursor:pointer;font-family:var(--mono);">Configurer →</button>
+      </div>
+    </div>
+    <div style="margin-top:auto;padding:0 8px;">
+      <div style="font-size:9px;color:var(--text4);font-family:var(--mono);line-height:1.6;">
+        TicketRadar v4<br>Google Sheet + Push + Live<br>Marges estimées nettes
+      </div>
+    </div>
+  </div>
+  <div class="content" id="content"></div>
+</div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="mobile-nav" id="mobile-nav">
+  <button class="mnav-item active" id="mn-dashboard" onclick="nav('dashboard',document.getElementById('nav-dashboard'));updateMobileNav('dashboard')">
+    <span class="mnav-icon">📊</span><span class="mnav-label">Dashboard</span>
+  </button>
+  <button class="mnav-item" id="mn-events" onclick="nav('events',document.getElementById('nav-events'));updateMobileNav('events')">
+    <span class="mnav-icon">🎫</span><span class="mnav-label">Events</span>
+  </button>
+  <button class="mnav-item" id="mn-add" onclick="nav('add',document.getElementById('nav-add'));updateMobileNav('add')">
+    <span class="mnav-icon">➕</span><span class="mnav-label">Ajouter</span>
+  </button>
+  <button class="mnav-item" id="mn-watchlist" onclick="nav('watchlist',document.getElementById('nav-watchlist'));updateMobileNav('watchlist')">
+    <span class="mnav-icon">⭐</span><span class="mnav-label">Watchlist</span>
+  </button>
+  <button class="mnav-item" id="mn-settings" onclick="nav('settings',document.getElementById('nav-settings'));updateMobileNav('settings')">
+    <span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span>
+  </button>
+</nav>
+
+<script>
+/* ══════════════════════════════════════════════
+   DONNÉES STATIQUES DE BASE (fallback)
+   Si pas de Sheet configuré, ces données s'affichent
+══════════════════════════════════════════════ */
+const FALLBACK_EVENTS = [
+  {id:1,name:'Rosalía – LUX Tour',sub:'Movistar Arena Madrid',date:'30 mars 2026',h:'now',country:'ES',flag:'🇪🇸',cat:'concert',platform:'Viagogo',face:77,resale:190,marge:147,score:9.6,starred:false,custom:false,live:false},
+  {id:2,name:'F1 GP Japon – Suzuka',sub:'Suzuka Circuit',date:'27–29 mars 2026',h:'now',country:'JP',flag:'🇯🇵',cat:'f1',platform:'StubHub',face:340,resale:750,marge:121,score:9.2,starred:false,custom:false,live:false},
+  {id:3,name:'Tame Impala – Madrid',sub:'Movistar Arena – Agotado',date:'7 avr. 2026',h:'mid',country:'ES',flag:'🇪🇸',cat:'concert',platform:'Viagogo',face:75,resale:210,marge:180,score:9.3,starred:true,custom:false,live:false},
+  {id:4,name:'F1 GP Monaco',sub:'Circuit de Monaco',date:'5–7 juin 2026',h:'mid',country:'MC',flag:'🇲🇨',cat:'f1',platform:'Viagogo/StubHub',face:900,resale:2400,marge:167,score:9.9,starred:false,custom:false,live:false},
+  {id:5,name:'Bruno Mars – The Romantic',sub:'NFL Stadiums USA',date:'Avr–Jun 2026',h:'mid',country:'US',flag:'🇺🇸',cat:'concert',platform:'StubHub',face:235,resale:625,marge:166,score:9.7,starred:false,custom:false,live:false},
+  {id:6,name:'UFC PPV Las Vegas',sub:'T-Mobile Arena',date:'Mai 2026',h:'mid',country:'US',flag:'🇺🇸',cat:'mma',platform:'SeatGeek',face:350,resale:875,marge:150,score:9.1,starred:false,custom:false,live:false},
+  {id:7,name:'Aya Nakamura – Stade de France',sub:'Saint-Denis · 3 dates',date:'29–31 mai 2026',h:'mid',country:'FR',flag:'🇫🇷',cat:'concert',platform:'Ticketmaster FR',face:87,resale:205,marge:136,score:9.4,starred:false,custom:false,live:false},
+  {id:8,name:'F1 Abu Dhabi – Race Day',sub:'Yas Marina · Finale saison',date:'3–6 déc. 2026',h:'far',country:'UAE',flag:'🇦🇪',cat:'f1',platform:'StubHub',face:500,resale:1475,marge:195,score:9.9,starred:false,custom:false,live:false},
+  {id:9,name:'Beyoncé – Cowboy Carter',sub:'SoFi Stadium, Los Angeles',date:'Déc. 2026',h:'far',country:'US',flag:'🇺🇸',cat:'concert',platform:'StubHub',face:250,resale:650,marge:160,score:9.8,starred:false,custom:false,live:false},
+  {id:10,name:'NBA Christmas Day',sub:'Lakers vs Warriors',date:'25 déc. 2026',h:'far',country:'US',flag:'🇺🇸',cat:'sport',platform:'StubHub',face:275,resale:625,marge:127,score:9.5,starred:false,custom:false,live:false},
+  {id:11,name:'OrelSan – Accor Arena',sub:'22–23 déc. Paris',date:'22–23 déc. 2026',h:'far',country:'FR',flag:'🇫🇷',cat:'concert',platform:'Fnac Spectacles',face:67,resale:130,marge:94,score:9.2,starred:false,custom:false,live:false},
+  {id:12,name:'Premier League Xmas',sub:'Arsenal / Man City home',date:'20–27 déc. 2026',h:'far',country:'UK',flag:'🇬🇧',cat:'sport',platform:'StubHub UK',face:100,resale:235,marge:135,score:9.2,starred:false,custom:false,live:false},
+  {id:13,name:'F1 GP Miami Sprint',sub:'Hard Rock Stadium',date:'1–3 mai 2026',h:'mid',country:'US',flag:'🇺🇸',cat:'f1',platform:'SeatGeek',face:575,resale:1400,marge:143,score:9.5,starred:false,custom:false,live:false},
+];
+
+const MARKETS=[
+  {id:'FR',label:'France 🇫🇷',on:true},{id:'UK',label:'UK 🇬🇧',on:true},
+  {id:'US',label:'USA 🇺🇸',on:true},{id:'ES',label:'Espagne 🇪🇸',on:true},
+  {id:'F1',label:'F1 🏎️',on:true},{id:'MMA',label:'MMA/UFC 🥊',on:true},
+  {id:'AS',label:'Asia 🌏',on:true},
+];
+
+const PLATFORMS=[
+  {id:'stubhub',name:'StubHub',logo:'SH',color:'#22d3a0',region:'USA · UK · EU',fees:15,liquidity:95,speed:92,guarantee:98,coverage:'Sport · Concert · MMA',pros:['FanProtect Guarantee','Paiement rapide (5j)','Très large catalogue'],cons:['Frais vendeur élevés','Frais acheteur cumulés']},
+  {id:'viagogo',name:'Viagogo',logo:'VG',color:'#f4a836',region:'50+ pays',fees:15,liquidity:88,speed:80,guarantee:85,coverage:'Concert · Sport · F1',pros:['Portée internationale','F1 très bien couvert'],cons:['Réputation variable','Service client lent']},
+  {id:'seatgeek',name:'SeatGeek',logo:'SG',color:'#60a8f0',region:'USA · UK',fees:10,liquidity:82,speed:90,guarantee:94,coverage:'Sport US · Concert',pros:['Deal Score™ unique','Frais les plus bas'],cons:['Peu présent en Europe','Moins de stock F1']},
+  {id:'ticketmaster',name:'TM Resale',logo:'TM',color:'#6c63ff',region:'Mondial',fees:10,liquidity:90,speed:95,guarantee:96,coverage:'Tous types',pros:['Billetterie officielle','Livraison instantanée'],cons:['Moins de marge vendeur','Prix parfois plafonnés']},
+  {id:'ticketswap',name:'TicketSwap',logo:'TS',color:'#f06060',region:'EU principalement',fees:8,liquidity:70,speed:85,guarantee:90,coverage:'Concert · Festival',pros:['Prix plafonné 120%','Frais les plus bas'],cons:['Volume limité','Peu adapté F1/sport']},
+  {id:'fanpass',name:'FanPass',logo:'FP',color:'#c084fc',region:'UK · EU',fees:12,liquidity:65,speed:78,guarantee:88,coverage:'Sport UK · Concert',pros:['Spécialiste foot UK'],cons:['Couverture géo limitée','Moins connu']},
+];
+
+const ALERTS=[
+  {icon:'🔥',type:'green',name:'Tame Impala Madrid',desc:'+180% détecté — Viagogo',time:'2h'},
+  {icon:'⚡',type:'amber',name:'Aya Nakamura Stade de France',desc:'+136% — Ticketmaster FR',time:'4h'},
+  {icon:'ℹ',type:'blue',name:'F1 Abu Dhabi nouveau lot',desc:'Nouvelles places disponibles',time:'6h'},
+  {icon:'🔥',type:'green',name:'UFC PPV Las Vegas',desc:'+150% — SeatGeek',time:'8h'},
+];
+
+const FX={EUR_USD:1.085,EUR_GBP:0.856,USD_EUR:0.922,USD_GBP:0.789,GBP_EUR:1.168,GBP_USD:1.267};
+
+/* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+const S = {
+  lang: localStorage.getItem('tr-lang') || 'fr',
+  view: 'dashboard',
+  cat: 'all', horizon: 'all', seuil: parseInt(localStorage.getItem('tr-seuil')) || 30,
+  search: '', sortCol: 'marge', sortDir: -1,
+  wl: JSON.parse(localStorage.getItem('tr-wl') || '["F1 Monaco","Tame Impala Madrid"]'),
+  customEvents: JSON.parse(localStorage.getItem('tr-custom') || '[]'),
+  sheetUrl: localStorage.getItem('tr-sheet-url') || SHEET_CSV_URL || '',
+  apiUrl: localStorage.getItem('tr-api-url') || SCRAPER_API_URL || '',
+  compSearch: '', nextId: 300,
+  sheetEvents: [], loadingSheet: false, sheetLoaded: false, sheetError: '',
+  notifStatus: 'unknown', // 'unknown' | 'granted' | 'denied' | 'unsupported'
+  liveData: {}, // prix live depuis l'API
+  charts: {},
+};
+
+// Restaure seuil dans le slider
+document.getElementById('seuil').value = S.seuil;
+document.getElementById('seuil-val').textContent = '+' + S.seuil + '%';
+
+/* ══════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════ */
+const allEvs = () => [...(S.sheetLoaded ? S.sheetEvents : FALLBACK_EVENTS), ...S.customEvents];
+const sc = s => s >= 9 ? '#22d3a0' : s >= 8 ? '#f4a836' : '#55556a';
+const mc = m => m >= 100 ? 'mb-hot' : m >= 50 ? 'mb-mid' : 'mb-low';
+const hLabel = h => h === 'now' ? (S.lang==='fr'?'Imminent':'Imminent') : h === 'mid' ? (S.lang==='fr'?'Court terme':'Short-term') : (S.lang==='fr'?'Déc. 2026':'Dec. 2026');
+const hClass = h => h === 'now' ? 'hn' : h === 'mid' ? 'hm' : 'hf';
+
+function toast(msg, icon='✓') {
+  const el = document.getElementById('toast');
+  document.getElementById('t-icon').textContent = icon;
+  document.getElementById('t-msg').textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function saveState() {
+  localStorage.setItem('tr-lang', S.lang);
+  localStorage.setItem('tr-seuil', S.seuil);
+  localStorage.setItem('tr-wl', JSON.stringify(S.wl));
+  localStorage.setItem('tr-custom', JSON.stringify(S.customEvents));
+  localStorage.setItem('tr-sheet-url', S.sheetUrl);
+  localStorage.setItem('tr-api-url', S.apiUrl);
+}
+
+function filtered() {
+  return allEvs().filter(e => {
+    if (S.cat === 'custom') return e.custom === true;
+    if (S.cat !== 'all' && e.cat !== S.cat) return false;
+    if (S.horizon !== 'all' && e.h !== S.horizon) return false;
+    if (e.marge < S.seuil) return false;
+    if (S.search && !e.name.toLowerCase().includes(S.search.toLowerCase()) &&
+        !(e.sub||'').toLowerCase().includes(S.search.toLowerCase())) return false;
+    return true;
+  }).sort((a, b) => a[S.sortCol] < b[S.sortCol] ? S.sortDir : -S.sortDir);
+}
+
+function sortBy(col) {
+  if (S.sortCol === col) S.sortDir *= -1;
+  else { S.sortCol = col; S.sortDir = -1; }
+  render();
+}
+
+function toggleStar(id) {
+  const e = allEvs().find(x => x.id === id);
+  if (e) { e.starred = !e.starred; saveState(); render(); }
+}
+
+/* ══════════════════════════════════════════════
+   GOOGLE SHEET LOADER
+══════════════════════════════════════════════ */
+async function loadSheet() {
+  if (!S.sheetUrl || S.sheetUrl === 'COLLE_ICI_L_URL_CSV_DE_TON_SHEET') {
+    S.sheetLoaded = false;
+    updateDataSourceInfo('not-configured');
+    render();
+    return;
+  }
+
+  S.loadingSheet = true;
+  updateDataSourceInfo('loading');
+  render();
+
+  try {
+    // iOS Safari PWA needs explicit CORS mode + cache bypass
+    const fetchUrl = S.sheetUrl + (S.sheetUrl.includes('?') ? '&' : '?') + 'cache=' + Date.now();
+    const res = await fetch(fetchUrl, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      headers: { 'Accept': 'text/csv,text/plain,*/*' }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const events = parseSheetCSV(text);
+
+    if (events.length === 0) throw new Error('Sheet vide ou format incorrect');
+
+    S.sheetEvents = events;
+    S.sheetLoaded = true;
+    S.sheetError = '';
+    S.loadingSheet = false;
+    updateDataSourceInfo('ok', events.length);
+
+    // Enrichit avec les prix live si l'API est configurée
+    if (S.apiUrl) await enrichWithLivePrices();
+
+    toast(`✅ ${events.length} events chargés depuis Google Sheet`, '📊');
+    render();
+
+  } catch (err) {
+    S.sheetLoaded = false;
+    S.sheetError = err.message;
+    S.loadingSheet = false;
+    updateDataSourceInfo('error', 0, err.message);
+    toast('Erreur Sheet : ' + err.message, '⚠');
+    render();
+  }
+}
+
+function parseSheetCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+
+  const headers = splitCSV(lines[0]).map(h => h.trim().replace(/"/g, '').toLowerCase());
+  let nextId = 1000;
+
+  return lines.slice(1).map(line => {
+    const cols = splitCSV(line);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (cols[i] || '').replace(/"/g, '').trim(); });
+
+    const face = parseFloat(row.face) || 0;
+    const resale = parseFloat(row.resale) || 0;
+    const net = resale * 0.85;
+    const marge = face > 0 ? Math.round(((net - face) / face) * 100) : 0;
+    const score = parseFloat(row.score) || Math.min(Math.max(Math.round(marge / 20 + 5), 5), 10);
+
+    return {
+      id: nextId++,
+      name: row.name || '',
+      sub: row.sub || row.lieu || '',
+      date: row.date || '',
+      h: row.horizon || row.h || 'mid',
+      country: row.country || 'FR',
+      flag: row.flag || '🎫',
+      cat: row.cat || row.category || 'concert',
+      platform: row.platform || '',
+      face, resale, marge, score,
+      starred: false, custom: false, live: false,
+    };
+  }).filter(e => e.name && e.face > 0);
+}
+
+function splitCSV(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') inQuotes = !inQuotes;
+    else if (char === ',' && !inQuotes) { result.push(current); current = ''; }
+    else current += char;
+  }
+  result.push(current);
+  return result;
+}
+
+function updateDataSourceInfo(status, count = 0, error = '') {
+  const el = document.getElementById('data-source-info');
+  if (!el) return;
+
+  const msgs = {
+    'not-configured': '<span style="color:var(--amber)">Sheet non configuré<br>→ onglet Config</span>',
+    'loading': '<span style="color:var(--blue)">⟳ Chargement du Sheet...</span>',
+    'ok': `<span style="color:var(--green)">✓ Sheet connecté<br>${count} events chargés</span>`,
+    'error': `<span style="color:var(--red)">✕ Erreur: ${error}</span>`,
+  };
+  el.innerHTML = msgs[status] || msgs['not-configured'];
+}
+
+/* ══════════════════════════════════════════════
+   LIVE PRICES (API Scraper)
+══════════════════════════════════════════════ */
+async function enrichWithLivePrices() {
+  if (!S.apiUrl) return;
+  try {
+    const res = await fetch(S.apiUrl + '/prices');
+    if (!res.ok) return;
+    const data = await res.json();
+    const prices = data.data || data;
+
+    // Mappe les prix live sur les events
+    const evs = S.sheetLoaded ? S.sheetEvents : FALLBACK_EVENTS;
+    for (const ev of evs) {
+      const match = prices.find(p => {
+        const key = p.event_key || '';
+        return ev.name.toLowerCase().includes(key) || key.includes(ev.name.toLowerCase().split(' ')[0]);
+      });
+      if (match && match.resale_avg > 0) {
+        const oldResale = ev.resale;
+        ev.resale = match.resale_avg;
+        const net = ev.resale * 0.85;
+        ev.marge = ev.face > 0 ? Math.round(((net - ev.face) / ev.face) * 100) : 0;
+        ev.live = match.source === 'live';
+        S.liveData[ev.id] = { resale: match.resale_avg, platform: match.platform, source: match.source };
+      }
+    }
+    toast('Prix live mis à jour', '📡');
+  } catch (err) {
+    console.warn('API live prices error:', err);
+  }
+}
+
+/* ══════════════════════════════════════════════
+   PUSH NOTIFICATIONS
+══════════════════════════════════════════════ */
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) {
+    S.notifStatus = 'unsupported';
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    // Envoie la config au Service Worker
+    if (reg.active) {
+      reg.active.postMessage({
+        type: 'CONFIG',
+        payload: { sheetUrl: S.sheetUrl, seuil: S.seuil }
+      });
+    }
+    console.log('[App] Service Worker enregistré');
+  } catch (err) {
+    console.warn('[App] SW non enregistré:', err);
+  }
+}
+
+async function requestNotifications() {
+  if (!('Notification' in window)) {
+    S.notifStatus = 'unsupported';
+    toast('Notifications non supportées par ce navigateur', '⚠');
+    render();
+    return;
+  }
+
+  const perm = await Notification.requestPermission();
+  S.notifStatus = perm;
+  localStorage.setItem('tr-notif', perm);
+
+  if (perm === 'granted') {
+    await registerServiceWorker();
+    toast('Notifications activées ✓ — tu seras alerté des opportunités !', '🔔');
+  } else {
+    toast('Notifications refusées dans les paramètres du navigateur', '⚠');
+  }
+  render();
+}
+
+function disableNotifications() {
+  S.notifStatus = 'denied-by-user';
+  localStorage.setItem('tr-notif', 'denied-by-user');
+  toast('Notifications désactivées', '🔕');
+  render();
+}
+
+function testNotification() {
+  if (S.notifStatus !== 'granted') { toast('Active les notifications d\'abord', '⚠'); return; }
+  new Notification('🔥 TicketRadar — Test alerte', {
+    body: '🇲🇨 F1 GP Monaco — +167% de marge · Viagogo',
+    icon: '/ticketradar/icon-192.png',
+    tag: 'ticketradar-test',
+  });
+}
+
+/* ══════════════════════════════════════════════
+   LANG
+══════════════════════════════════════════════ */
+function setLang(l) {
+  S.lang = l;
+  document.getElementById('lb-fr').classList.toggle('active', l === 'fr');
+  document.getElementById('lb-en').classList.toggle('active', l === 'en');
+  saveState();
+  applyLang(); render();
+}
+
+function applyLang() {
+  const navIds = ['dashboard','events','add','roi','compare','watchlist','settings'];
+  const navLabels = S.lang === 'fr'
+    ? ['Dashboard','Événements','+ Ajouter','ROI / Devises','Comparateur','Watchlist','⚙ Config']
+    : ['Dashboard','Events','+ Add','ROI / Currency','Comparator','Watchlist','⚙ Config'];
+  navIds.forEach((v, i) => { const el = document.getElementById('nav-' + v); if (el) el.textContent = navLabels[i]; });
+  document.getElementById('sb-mkt-lbl').textContent = S.lang === 'fr' ? 'MARCHÉS' : 'MARKETS';
+  document.getElementById('sb-seuil-lbl').textContent = S.lang === 'fr' ? 'SEUIL ALERTE' : 'ALERT THRESHOLD';
+  document.getElementById('sb-min-lbl').textContent = S.lang === 'fr' ? 'marge min.' : 'min. margin';
+  renderMarkets();
+}
+
+/* ══════════════════════════════════════════════
+   SIDEBAR
+══════════════════════════════════════════════ */
+function renderMarkets() {
+  document.getElementById('mkt-list').innerHTML = MARKETS.map((m, i) => `
+    <div class="sb-mkt ${m.on ? 'on' : ''}" onclick="toggleMkt(${i})">
+      <span class="sb-mkt-label">${m.label}</span>
+      <div class="tog ${m.on ? 'on' : ''}"></div>
+    </div>`).join('');
+}
+function toggleMkt(i) { MARKETS[i].on = !MARKETS[i].on; renderMarkets(); }
+function onSeuil(v) {
+  S.seuil = +v;
+  document.getElementById('seuil-val').textContent = '+' + v + '%';
+  saveState();
+  // Met à jour la config du Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(reg => {
+      if (reg.active) reg.active.postMessage({ type: 'CONFIG', payload: { sheetUrl: S.sheetUrl, seuil: S.seuil } });
+    });
+  }
+  render();
+}
+
+/* ══════════════════════════════════════════════
+   NAV
+══════════════════════════════════════════════ */
+function updateMobileNav(v) {
+  document.querySelectorAll('.mnav-item').forEach(b => b.classList.remove('active'));
+  const active = document.getElementById('mn-' + v);
+  if (active) active.classList.add('active');
+  // Show back button only when not on dashboard
+  const backBtn = document.getElementById('back-btn');
+  if (backBtn) backBtn.style.display = (v !== 'dashboard') ? 'flex' : 'none';
+}
+
+function navBack() {
+  nav('dashboard', document.getElementById('nav-dashboard'));
+  updateMobileNav('dashboard');
+}
+
+function nav(v, el) {
+  S.view = v;
+  document.querySelectorAll('.npill').forEach(n => n.classList.remove('active'));
+  el.classList.add('active');
+  render();
+}
+
+/* ══════════════════════════════════════════════
+   TABLE
+══════════════════════════════════════════════ */
+function buildTable(evs) {
+  const noEvLbl = S.lang === 'fr' ? 'Aucun événement pour cette sélection' : 'No events for this selection';
+  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div>${noEvLbl}</div>`;
+  const th = (col, label) => `<th onclick="sortBy('${col}')" class="${S.sortCol === col ? 'sorted' : ''}">${label}${S.sortCol === col ? (S.sortDir < 0 ? ' ↓' : ' ↑') : ''}</th>`;
+  return `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th style="width:36px"></th>
+      ${th('name', S.lang==='fr'?'ÉVÉNEMENT':'EVENT')}
+      <th>HORIZON</th><th>CAT.</th>
+      ${th('face', S.lang==='fr'?'PRIX FACE':'FACE VALUE')}
+      ${th('resale', 'REVENTE')}
+      ${th('marge', 'MARGE ↓')}
+      ${th('score', 'SCORE')}
+      <th>PLATEFORME</th>
+    </tr></thead>
+    <tbody>${evs.map(e => `<tr>
+      <td><button class="star-btn ${e.starred ? 'on' : ''}" onclick="event.stopPropagation();toggleStar(${e.id})">${e.starred ? '★' : '☆'}</button></td>
+      <td><div class="ev-name">${e.flag || '🎫'} ${e.name}${e.live ? '<span class="live-badge">LIVE</span>' : ''}</div><div class="ev-sub">${e.sub || ''} · ${e.date}</div></td>
+      <td><span class="hdot ${hClass(e.h)}"></span><span style="font-size:10.5px;color:var(--text3)">${hLabel(e.h)}</span></td>
+      <td><span class="cat-tag ct-${e.custom ? 'custom' : e.cat}">${e.custom ? 'CUSTOM' : e.cat.toUpperCase()}</span></td>
+      <td class="mf">${e.face.toLocaleString()}€</td>
+      <td class="mr">${e.resale.toLocaleString()}€</td>
+      <td><span class="mb ${mc(e.marge)}">+${e.marge}%</span></td>
+      <td><div class="score-row"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bg"><div class="score-fg" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
+      <td><span class="plat-tag">${e.platform}</span></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+/* ══════════════════════════════════════════════
+   RENDER DISPATCH
+══════════════════════════════════════════════ */
+function render() {
+  // Update status bar
+  const dot = document.getElementById('pulse-dot');
+  const lbl = document.getElementById('status-lbl');
+  if (S.loadingSheet) {
+    dot.style.background = 'var(--amber)';
+    lbl.textContent = S.lang === 'fr' ? 'chargement...' : 'loading...';
+  } else if (S.sheetLoaded) {
+    dot.style.background = 'var(--green)';
+    lbl.textContent = S.lang === 'fr' ? 'sheet connecté' : 'sheet connected';
+  } else {
+    dot.style.background = 'var(--text3)';
+    lbl.textContent = S.lang === 'fr' ? 'données locales' : 'local data';
+  }
+
+  // Update notif sidebar
+  const notifEl = document.getElementById('notif-sidebar');
+  if (notifEl) {
+    const statusMap = {
+      'granted': '<span style="color:var(--green)">✓ Activées</span>',
+      'denied': '<span style="color:var(--red)">✕ Refusées</span>',
+      'denied-by-user': '<span style="color:var(--amber)">— Désactivées</span>',
+      'unsupported': '<span style="color:var(--text3)">Non supporté</span>',
+      'unknown': '<span style="color:var(--text3)">Non activées</span>',
+    };
+    notifEl.innerHTML = statusMap[S.notifStatus] || statusMap['unknown'];
+  }
+
+  const c = document.getElementById('content');
+  if (S.view === 'dashboard') renderDash(c);
+  else if (S.view === 'events') renderEvents(c);
+  else if (S.view === 'add') renderAdd(c);
+  else if (S.view === 'roi') renderROI(c);
+  else if (S.view === 'compare') renderCompare(c);
+  else if (S.view === 'watchlist') renderWatchlist(c);
+  else if (S.view === 'settings') renderSettings(c);
+}
+
+/* ══════════════════════════════════════════════
+   SETTINGS VIEW
+══════════════════════════════════════════════ */
+function renderSettings(c) {
+  const notifGranted = S.notifStatus === 'granted';
+  const notifSupported = 'Notification' in window;
+
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">📊 ${S.lang==='fr'?'Connexion Google Sheet':'Google Sheet connection'}</span>
+        <span class="card-meta">${S.lang==='fr'?'Source des données live':'Live data source'}</span>
+      </div>
+      ${S.loadingSheet ? `<div class="banner banner-loading" style="margin:14px 18px"><div class="banner-pulse"></div>${S.lang==='fr'?'Chargement du Sheet en cours...':'Loading sheet...'}</div>` :
+        S.sheetLoaded ? `<div class="banner banner-ok" style="margin:14px 18px"><div class="banner-pulse"></div>${S.sheetEvents.length} events chargés depuis Google Sheet</div>` :
+        S.sheetError ? `<div class="banner banner-error" style="margin:14px 18px">✕ Erreur : ${S.sheetError}</div>` :
+        `<div class="banner banner-info" style="margin:14px 18px">ℹ ${S.lang==='fr'?'Collez l\'URL CSV de votre Google Sheet ci-dessous':'Paste your Google Sheet CSV URL below'}</div>`}
+      <div class="settings-grid">
+        <div class="setting-group full">
+          <div class="setting-label">URL CSV DU GOOGLE SHEET *</div>
+          <input class="setting-input" id="sheet-url-input" placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv" value="${S.sheetUrl !== 'COLLE_ICI_L_URL_CSV_DE_TON_SHEET' ? S.sheetUrl : ''}">
+          <div class="setting-desc">Fichier → Partager → Publier sur le web → Feuille 1 → CSV → Publier → copier l'URL</div>
+        </div>
+        <div class="setting-group full">
+          <div class="setting-label">COLONNES REQUISES DANS LE SHEET</div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r10);padding:10px 14px;font-size:11px;font-family:var(--mono);color:var(--text3);line-height:2;">
+            name · sub · date · horizon · country · flag · cat · platform · face · resale · score
+          </div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-ghost" onclick="loadSheet()">🔄 ${S.lang==='fr'?'Recharger':'Reload'}</button>
+        <button class="btn-save" onclick="saveSheetUrl()">${S.lang==='fr'?'Sauvegarder & charger':'Save & load'}</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">📡 ${S.lang==='fr'?'API de prix live':'Live prices API'}</span>
+        <span class="card-meta">${S.lang==='fr'?'Scraping Railway/Render':'Railway/Render scraping'}</span>
+      </div>
+      ${!S.apiUrl ? `<div class="banner banner-info" style="margin:14px 18px">ℹ ${S.lang==='fr'?'Optionnel — sans API, les prix de revente sont estimés':'Optional — without API, resale prices are estimated'}</div>` : ''}
+      <div class="settings-grid">
+        <div class="setting-group full">
+          <div class="setting-label">URL DE TON API (Railway ou Render)</div>
+          <input class="setting-input" id="api-url-input" placeholder="https://ton-app.railway.app" value="${S.apiUrl}">
+          <div class="setting-desc">${S.lang==='fr'?'Déploie api.py sur Railway (gratuit) et colle l\'URL ici':'Deploy api.py on Railway (free) and paste the URL here'}</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-save" onclick="saveApiUrl()">${S.lang==='fr'?'Sauvegarder':'Save'}</button>
+        ${S.apiUrl ? `<button class="btn-ghost" onclick="testApi()">🧪 Test API</button>` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">🔔 ${S.lang==='fr'?'Notifications push':'Push notifications'}</span>
+        <span class="card-meta">${S.lang==='fr'?'Alertes même quand l\'app est fermée':'Alerts even when the app is closed'}</span>
+      </div>
+      <div class="notif-status">
+        <div class="notif-icon ${notifGranted ? 'ni-ok' : 'ni-off'}">${notifGranted ? '🔔' : '🔕'}</div>
+        <div style="flex:1">
+          <div class="notif-name">${
+            notifGranted ? (S.lang==='fr'?'Notifications activées':'Notifications enabled') :
+            S.notifStatus === 'denied' ? (S.lang==='fr'?'Notifications refusées':'Notifications denied') :
+            (S.lang==='fr'?'Notifications non activées':'Notifications not enabled')
+          }</div>
+          <div class="notif-sub">${
+            notifGranted ? (S.lang==='fr'?`Seuil : +${S.seuil}% · Vérification toutes les heures`:`Threshold: +${S.seuil}% · Hourly checks`) :
+            S.notifStatus === 'denied' ? (S.lang==='fr'?'Refusées dans les paramètres du navigateur':'Denied in browser settings') :
+            !notifSupported ? (S.lang==='fr'?'Non supporté par ce navigateur':'Not supported by this browser') :
+            (S.lang==='fr'?'Clique ci-dessous pour activer':'Click below to enable')
+          }</div>
+        </div>
+        ${!notifGranted && notifSupported ? `<button class="btn-notif btn-notif-on" onclick="requestNotifications()">🔔 ${S.lang==='fr'?'Activer':'Enable'}</button>` : ''}
+        ${notifGranted ? `<button class="btn-notif btn-notif-off" onclick="disableNotifications()">🔕 ${S.lang==='fr'?'Désactiver':'Disable'}</button>` : ''}
+      </div>
+      ${notifGranted ? `
+        <div style="padding:14px 18px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;">
+          <button class="btn-ghost" onclick="testNotification()">🧪 ${S.lang==='fr'?'Envoyer une notification test':'Send test notification'}</button>
+          <span style="font-size:10.5px;color:var(--text3);font-family:var(--mono)">${S.lang==='fr'?'Vérifie que les notifications s\'affichent bien':'Check that notifications display correctly'}</span>
+        </div>` : ''}
+      <div style="padding:14px 18px;border-top:1px solid var(--border);">
+        <div style="font-size:11px;color:var(--text3);line-height:1.8;">
+          ${S.lang==='fr'?`
+          Le Service Worker vérifie ton Google Sheet <strong>toutes les heures</strong>.<br>
+          Tu reçois une notification si une marge dépasse ton seuil (<strong>+${S.seuil}%</strong>).<br>
+          Fonctionne en arrière-plan même quand l'onglet est fermé.
+          `:`
+          The Service Worker checks your Google Sheet <strong>every hour</strong>.<br>
+          You get a notification when a margin exceeds your threshold (<strong>+${S.seuil}%</strong>).<br>
+          Works in background even when the tab is closed.
+          `}
+        </div>
+      </div>
+    </div>`;
+}
+
+function saveSheetUrl() {
+  const input = document.getElementById('sheet-url-input');
+  if (input) {
+    S.sheetUrl = input.value.trim();
+    saveState();
+    loadSheet();
+  }
+}
+
+function saveApiUrl() {
+  const input = document.getElementById('api-url-input');
+  if (input) {
+    S.apiUrl = input.value.trim();
+    saveState();
+    toast(S.lang === 'fr' ? 'URL API sauvegardée' : 'API URL saved', '✓');
+    render();
+  }
+}
+
+async function testApi() {
+  if (!S.apiUrl) return;
+  try {
+    const res = await fetch(S.apiUrl + '/health');
+    const data = await res.json();
+    toast('API OK — ' + data.status, '✓');
+  } catch (err) {
+    toast('API non joignable : ' + err.message, '✕');
+  }
+}
+
+/* ══════════════════════════════════════════════
+   DASHBOARD
+══════════════════════════════════════════════ */
+function renderDash(c) {
+  const all = allEvs();
+  const hot = all.filter(e => e.marge >= 100).length;
+  const avg = all.length ? Math.round(all.reduce((a, e) => a + e.marge, 0) / all.length) : 0;
+  const topS = all.length ? all.reduce((a, e) => e.score > a.score ? e : a, all[0]).score : '—';
+  const liveCount = all.filter(e => e.live).length;
+  const fr = S.lang === 'fr';
+
+  c.innerHTML = `
+    ${S.loadingSheet ? `<div class="banner banner-loading"><div class="banner-pulse" style="background:var(--amber)"></div>${fr?'Chargement du Google Sheet...':'Loading Google Sheet...'}</div>` : ''}
+    ${S.sheetError && !S.sheetLoaded ? `<div class="banner banner-error">✕ ${fr?'Erreur Sheet':'Sheet error'} : ${S.sheetError} — <span style="cursor:pointer;text-decoration:underline" onclick="nav('settings',document.getElementById('nav-settings'))">${fr?'Configurer':'Configure'}</span></div>` : ''}
+    ${!S.sheetUrl || S.sheetUrl === 'COLLE_ICI_L_URL_CSV_DE_TON_SHEET' ? `<div class="banner banner-info">ℹ ${fr?'Connecte ton Google Sheet pour avoir tes propres events —':'Connect your Google Sheet to use your own events —'} <span style="cursor:pointer;text-decoration:underline" onclick="nav('settings',document.getElementById('nav-settings'))">${fr?'Configurer':'Configure'}</span></div>` : ''}
+
+    <div class="kpi-grid">
+      <div class="kpi-card kc-green"><div class="kpi-lbl">${fr?'EVENTS TOTAL':'TOTAL EVENTS'}</div><div class="kpi-val" style="color:var(--green)">${all.length}</div><div class="kpi-sub">${fr?'toutes plateformes':'all platforms'}</div><div class="kpi-badge kb-up">${S.sheetLoaded ? '📊 Sheet' : '🗄 Local'}</div></div>
+      <div class="kpi-card kc-accent"><div class="kpi-lbl">${fr?'MARGE MOY.':'AVG. MARGIN'}</div><div class="kpi-val" style="color:var(--accent3)">+${avg}%</div><div class="kpi-sub">${fr?'nette estimée':'net estimated'}</div></div>
+      <div class="kpi-card kc-amber"><div class="kpi-lbl">${fr?'OPPS. ≥100%':'OPPS. ≥100%'}</div><div class="kpi-val" style="color:var(--amber)">${hot}</div><div class="kpi-sub">${fr?'marge premium':'premium margin'}</div><div class="kpi-badge kb-warn">${fr?'actives 🔥':'active 🔥'}</div></div>
+      <div class="kpi-card kc-blue"><div class="kpi-lbl">TOP SCORE</div><div class="kpi-val" style="color:var(--blue)">${topS}/10</div><div class="kpi-sub">${fr?'score max':'max score'}</div></div>
+      <div class="kpi-card kc-purple"><div class="kpi-lbl">PRIX LIVE</div><div class="kpi-val" style="color:var(--purple)">${liveCount}</div><div class="kpi-sub">${S.apiUrl ? '📡 API active' : fr?'API non configurée':'API not set'}</div></div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card"><div class="chart-title">${fr?'Marge par catégorie':'Margin by category'}</div><div class="chart-sub">${fr?'Marge moyenne nette estimée':'Average net estimated margin'}</div><div style="position:relative;height:190px"><canvas id="ch-cat"></canvas></div></div>
+      <div class="chart-card">
+        <div class="chart-title">${fr?'Répartition par horizon':'Distribution by horizon'}</div>
+        <div class="legend">
+          <div class="leg-item"><div class="leg-sq" style="background:var(--red)"></div>${fr?'Imminent':'Imminent'} (${all.filter(e=>e.h==='now').length})</div>
+          <div class="leg-item"><div class="leg-sq" style="background:var(--amber)"></div>${fr?'Court terme':'Short-term'} (${all.filter(e=>e.h==='mid').length})</div>
+          <div class="leg-item"><div class="leg-sq" style="background:var(--green)"></div>${fr?'Déc. 2026':'Dec. 2026'} (${all.filter(e=>e.h==='far').length})</div>
+        </div>
+        <div style="position:relative;height:155px"><canvas id="ch-h"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-title">${fr?'Alertes récentes':'Recent alerts'}</span><span class="card-meta">${fr?'automatique · 6h':'automatic · 6h'}</span></div>
+      ${ALERTS.map(a => `<div class="alert-row"><div class="alert-icon ai-${a.type}">${a.icon}</div><div style="flex:1"><div class="alert-name">${a.name}</div><div class="alert-desc">${a.desc}</div></div><div class="alert-time">${a.time}</div></div>`).join('')}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-title">${fr?'Top opportunités':'Top opportunities'}</span><span class="card-act" onclick="nav('events',document.getElementById('nav-events'))">${fr?'voir tout →':'see all →'}</span></div>
+      ${buildTable(all.slice().sort((a,b)=>b.marge-a.marge).slice(0,5))}
+    </div>`;
+
+  setTimeout(() => {
+    if (S.charts.cat) S.charts.cat.destroy();
+    const cats = ['f1','concert','mma','sport'];
+    S.charts.cat = new Chart(document.getElementById('ch-cat'), {
+      type: 'bar',
+      data: { labels: ['F1','Concert','MMA','Sport'], datasets: [{ data: cats.map(cat => { const ev = all.filter(e=>e.cat===cat); return ev.length?Math.round(ev.reduce((a,e)=>a+e.marge,0)/ev.length):0; }), backgroundColor: ['#f4a836','#6c63ff','#f06060','#22d3a0'], borderRadius: 8, borderSkipped: false }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#9898b8',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#9898b8',font:{size:11},callback:v=>'+'+v+'%'}}} }
+    });
+    if (S.charts.h) S.charts.h.destroy();
+    S.charts.h = new Chart(document.getElementById('ch-h'), {
+      type: 'doughnut',
+      data: { labels:[fr?'Imminent':'Imminent',fr?'Court terme':'Short-term',fr?'Déc. 2026':'Dec. 2026'], datasets:[{ data:[all.filter(e=>e.h==='now').length,all.filter(e=>e.h==='mid').length,all.filter(e=>e.h==='far').length], backgroundColor:['#f06060','#f4a836','#22d3a0'], borderWidth:0, spacing:4 }] },
+      options: { responsive:true, maintainAspectRatio:false, cutout:'65%', plugins:{legend:{display:false}} }
+    });
+  }, 80);
+}
+
+/* ══════════════════════════════════════════════
+   EVENTS, ADD, ROI, COMPARATOR, WATCHLIST
+   (identiques à v3 — inclus compacts)
+══════════════════════════════════════════════ */
+function renderEvents(c) {
+  const fr=S.lang==='fr'; const evs=filtered();
+  const catLabels={all:fr?'Tous':'All',f1:'F1 🏎️',concert:fr?'Concert 🎤':'Concert 🎤',mma:'MMA 🥊',sport:fr?'Sport ⚽':'Sport ⚽',custom:fr?'Mes events 🟣':'My events 🟣'};
+  const hLabels={all:fr?'Tout horizon':'All horizons',now:fr?'🔴 Imminent':'🔴 Imminent',mid:fr?'🟠 Court terme':'🟠 Short-term',far:fr?'🟢 Déc. 2026':'🟢 Dec. 2026'};
+  c.innerHTML=`<div class="card">
+    <div class="card-head"><span class="card-title">${fr?'Événements':'Events'}</span><span class="card-meta">${evs.length} · seuil +${S.seuil}%${S.sheetLoaded?' · 📊 Sheet':' · 🗄 local'}</span></div>
+    <div class="toolbar">
+      ${Object.entries(catLabels).map(([k,v])=>`<button class="fchip ${S.cat===k?'on':''}" onclick="S.cat='${k}';render()">${v}</button>`).join('')}
+      <div class="vsep"></div>
+      ${Object.entries(hLabels).map(([k,v])=>`<button class="fchip ${S.horizon===k?'on':''}" onclick="S.horizon='${k}';render()">${v}</button>`).join('')}
+      <div class="search-box"><span style="color:var(--text4)">⌕</span><input placeholder="${fr?'Rechercher...':'Search...'}" value="${S.search}" oninput="S.search=this.value;render()"></div>
+    </div>
+    ${buildTable(evs)}
+  </div>`;
+}
+
+function renderAdd(c) {
+  const fr=S.lang==='fr';
+  c.innerHTML=`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head"><span class="card-title">${fr?'Ajouter un événement':'Add an event'}</span><span class="card-meta">${fr?'Stocké localement + dans ton Sheet':'Stored locally'}</span></div>
+      <div class="form-grid">
+        <div class="form-group full"><div class="form-label">${fr?'NOM DE L\'ÉVÉNEMENT *':'EVENT NAME *'}</div><input class="form-input" id="f-name" placeholder="${fr?'ex: OrelSan Paris, F1 Monaco...':'e.g. OrelSan Paris, F1 Monaco...'}"></div>
+        <div class="form-group"><div class="form-label">${fr?'DATE':'DATE'}</div><input class="form-input" id="f-date" placeholder="${fr?'ex: 22 déc. 2026':'e.g. Dec 22, 2026'}"></div>
+        <div class="form-group"><div class="form-label">${fr?'LIEU / VILLE':'VENUE / CITY'}</div><input class="form-input" id="f-lieu" placeholder="${fr?'ex: Accor Arena, Paris':'e.g. O2 Arena, London'}"></div>
+        <div class="form-group"><div class="form-label">${fr?'CATÉGORIE':'CATEGORY'}</div><select class="form-select" id="f-cat"><option value="concert">Concert 🎤</option><option value="f1">F1 🏎️</option><option value="mma">MMA 🥊</option><option value="sport">Sport ⚽</option></select></div>
+        <div class="form-group"><div class="form-label">HORIZON</div><select class="form-select" id="f-h"><option value="now">${fr?'Imminent (< 1 mois)':'Imminent (< 1 month)'}</option><option value="mid">${fr?'Court terme (1–6 mois)':'Short-term (1–6 months)'}</option><option value="far">${fr?'Décembre 2026':'December 2026'}</option></select></div>
+        <div class="form-group"><div class="form-label">FLAG EMOJI</div><input class="form-input" id="f-flag" placeholder="🇫🇷" style="font-size:18px"></div>
+        <div class="form-group"><div class="form-label">${fr?'PLATEFORME D\'ACHAT':'PURCHASE PLATFORM'}</div><select class="form-select" id="f-platform"><option>Ticketmaster FR</option><option>Ticketmaster UK</option><option>StubHub</option><option>Viagogo</option><option>SeatGeek</option><option>Fnac Spectacles</option><option>Autre</option></select></div>
+        <div class="form-group"><div class="form-label">${fr?'PRIX FACE VALUE (€) *':'FACE VALUE (€) *'}</div><input class="form-input" id="f-face" type="number" placeholder="70" oninput="calcPreview()"></div>
+        <div class="form-group"><div class="form-label">${fr?'PRIX REVENTE ESTIMÉ (€) *':'EST. RESALE PRICE (€) *'}</div><input class="form-input" id="f-resale" type="number" placeholder="160" oninput="calcPreview()"></div>
+        <div class="form-group"><div class="form-label">${fr?'NB. DE BILLETS':'NO. TICKETS'}</div><input class="form-input" id="f-qty" type="number" value="2" min="1" oninput="calcPreview()"></div>
+        <div class="form-group full"><div class="form-label">NOTES</div><input class="form-input" id="f-notes" placeholder="${fr?'Lien billetterie, infos utiles...':'Ticket link, notes...'}"></div>
+      </div>
+      <div class="form-preview" id="form-preview">${fr?'Renseignez le prix face et revente pour la prévisualisation...':'Enter face value and resale price to preview...'}</div>
+      <div class="form-actions"><button class="btn-ghost" onclick="resetForm()">${fr?'Réinitialiser':'Reset'}</button><button class="btn-primary" onclick="saveEvent()">${fr?'Enregistrer':'Save'}</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">${fr?'Mes événements ajoutés':'My added events'}</span><span class="card-meta">${S.customEvents.length} events</span></div>
+      ${S.customEvents.length===0?`<div class="empty"><div class="empty-icon">◎</div>${fr?'Aucun event ajouté pour l\'instant':'No events added yet'}</div>`:
+        S.customEvents.map((e,i)=>`<div class="cev-item">
+          <div class="cev-dot" style="background:${mc(e.marge)==='mb-hot'?'var(--green)':mc(e.marge)==='mb-mid'?'var(--amber)':'var(--text4)'}"></div>
+          <div style="flex:1"><div class="cev-name">${e.flag||'🎫'} ${e.name}</div><div class="cev-meta">${e.date||'—'} · ${e.face}€ → ${e.resale}€ · +${e.marge}%</div></div>
+          <span class="mb ${mc(e.marge)}" style="margin-right:8px">+${e.marge}%</span>
+          <button class="del-btn" onclick="deleteCustom(${i})">✕</button>
+        </div>`).join('')}
+    </div>`;
+}
+
+function calcPreview() {
+  const face=parseFloat(document.getElementById('f-face')?.value)||0;
+  const resale=parseFloat(document.getElementById('f-resale')?.value)||0;
+  const qty=parseInt(document.getElementById('f-qty')?.value)||1;
+  const el=document.getElementById('form-preview'); if(!el||!face||!resale)return;
+  const net=resale*.85; const marge=Math.round(((net-face)/face)*100);
+  const gain=Math.round((net-face)*qty);
+  const col=marge>=100?'var(--green)':marge>=50?'var(--amber)':'var(--text3)';
+  el.innerHTML=`Marge : <span style="color:${col};font-weight:600">+${marge}%</span> · Gain net (×${qty}) : <span style="color:${col};font-weight:600">${gain>=0?'+':''}${gain}€</span> · Investi : ${face*qty}€`;
+}
+
+function saveEvent() {
+  const name=document.getElementById('f-name').value.trim();
+  const face=parseFloat(document.getElementById('f-face').value)||0;
+  const resale=parseFloat(document.getElementById('f-resale').value)||0;
+  if(!name||!face||!resale){toast(S.lang==='fr'?'Renseignez le nom, prix face et revente':'Enter name, face value and resale','⚠');return;}
+  const net=resale*.85; const marge=Math.round(((net-face)/face)*100);
+  S.customEvents.push({
+    id:S.nextId++, name, sub:document.getElementById('f-lieu').value||'',
+    date:document.getElementById('f-date').value||'', lieu:document.getElementById('f-lieu').value||'',
+    flag:document.getElementById('f-flag').value||'🎫', cat:document.getElementById('f-cat').value,
+    h:document.getElementById('f-h').value, platform:document.getElementById('f-platform').value,
+    face,resale,marge, score:Math.min(Math.max(Math.round(marge/20+5),5),10),
+    qty:parseInt(document.getElementById('f-qty').value)||1, notes:document.getElementById('f-notes').value,
+    starred:false, custom:true, live:false, country:'CUSTOM',
+  });
+  saveState();
+  toast(S.lang==='fr'?'Event enregistré !':'Event saved!','✓');
+  resetForm(); render();
+}
+
+function resetForm() {
+  ['f-name','f-date','f-lieu','f-flag','f-notes','f-face','f-resale'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const q=document.getElementById('f-qty');if(q)q.value='2';
+  const p=document.getElementById('form-preview');if(p)p.textContent=S.lang==='fr'?'Renseignez le prix face et revente pour la prévisualisation...':'Enter face value and resale price to preview...';
+}
+
+function deleteCustom(i){S.customEvents.splice(i,1);saveState();render();}
+
+function renderROI(c) {
+  const fr=S.lang==='fr';
+  const fields=fr?['Prix achat / billet','Prix revente estimé','Frais plateforme','Nb. de billets','Coût transport','Autres frais']:['Purchase price / ticket','Est. resale price','Platform fees','No. of tickets','Transport cost','Other costs'];
+  const units=['€','€','%',fr?'billets':'tickets','€','€'];
+  c.innerHTML=`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head"><span class="card-title">${fr?'Calculateur ROI':'ROI Calculator'}</span><span class="card-meta">${fr?'Simulation complète de rentabilité':'Full profitability simulation'}</span></div>
+      <div class="roi-grid">
+        <div class="roi-fields">${fields.map((f,i)=>`<div class="roi-field"><span class="roi-lbl">${f}</span><input class="roi-inp" id="ri-${i}" type="number" value="${[70,160,15,2,0,0][i]}" min="0" oninput="calcROI()"><span class="roi-unit">${units[i]}</span></div>`).join('')}</div>
+        <div class="roi-result" id="roi-res"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">${fr?'Convertisseur de devises':'Currency converter'}</span><span class="card-meta">${fr?'Taux indicatifs':'Indicative rates'}</span></div>
+      <div class="curr-grid">
+        <div class="curr-card"><div class="curr-pair">EUR → USD</div><div class="curr-rate">1€ = <span style="color:var(--green)">$${FX.EUR_USD}</span></div></div>
+        <div class="curr-card"><div class="curr-pair">EUR → GBP</div><div class="curr-rate">1€ = <span style="color:var(--blue)">£${FX.EUR_GBP}</span></div></div>
+        <div class="curr-card"><div class="curr-pair">USD → EUR</div><div class="curr-rate">$1 = <span style="color:var(--amber)">€${FX.USD_EUR}</span></div></div>
+        <div class="curr-card"><div class="curr-pair">USD → GBP</div><div class="curr-rate">$1 = <span style="color:var(--blue)">£${FX.USD_GBP}</span></div></div>
+        <div class="curr-card"><div class="curr-pair">GBP → EUR</div><div class="curr-rate">£1 = <span style="color:var(--amber)">€${FX.GBP_EUR}</span></div></div>
+        <div class="curr-card"><div class="curr-pair">GBP → USD</div><div class="curr-rate">£1 = <span style="color:var(--green)">$${FX.GBP_USD}</span></div></div>
+      </div>
+      <div class="curr-conv-row">
+        <span style="font-size:11.5px;color:var(--text3)">${fr?'Convertir :':'Convert:'}</span>
+        <input class="curr-inp" id="curr-amt" type="number" value="100" oninput="calcCurr()">
+        <select class="form-select" id="curr-from" oninput="calcCurr()" style="width:95px;padding:7px 10px;font-size:12px">
+          <option value="EUR">€ EUR</option><option value="USD">$ USD</option><option value="GBP">£ GBP</option>
+        </select>
+        <span style="color:var(--text3)">=</span>
+        <div class="curr-results" id="curr-res"></div>
+      </div>
+    </div>`;
+  calcROI(); calcCurr();
+}
+
+function calcROI() {
+  const fr=S.lang==='fr';
+  const face=parseFloat(document.getElementById('ri-0')?.value)||0;
+  const resale=parseFloat(document.getElementById('ri-1')?.value)||0;
+  const fees=parseFloat(document.getElementById('ri-2')?.value)||15;
+  const qty=parseInt(document.getElementById('ri-3')?.value)||1;
+  const transport=parseFloat(document.getElementById('ri-4')?.value)||0;
+  const other=parseFloat(document.getElementById('ri-5')?.value)||0;
+  const el=document.getElementById('roi-res'); if(!el)return;
+  const net=resale*(1-fees/100);
+  const grossGain=(net-face)*qty;
+  const invest=(face*qty)+transport+other;
+  const netGain=grossGain-transport-other;
+  const roi=invest>0?Math.round((netGain/invest)*100):0;
+  const breakeven=qty>0?Math.round(invest/qty):0;
+  const margeNet=face>0?Math.round(((net-face)/face)*100):0;
+  const col=roi>=100?'var(--green)':roi>=50?'var(--amber)':roi<0?'var(--red)':'var(--text3)';
+  const roiStats=fr?['Investi total','Gain brut','Gain net','Marge nette','Break-even / billet']:['Total invested','Gross gain','Net gain','Net margin','Break-even / ticket'];
+  el.innerHTML=`
+    <div class="roi-big" style="color:${col}">${roi>=0?'+':''}${roi}%</div>
+    <div class="roi-sublbl">${fr?'ROI net total':'Total net ROI'}</div>
+    <div class="timeline-bar"><div class="timeline-fill" style="width:${Math.min(Math.max(roi,0)/2,100)}%"></div></div>
+    <div style="font-size:9.5px;color:var(--text4);font-family:var(--mono);margin-top:3px;margin-bottom:8px">${fr?'Break-even si revente à':'Break-even if resale at'} ${resale}€</div>
+    <div class="roi-stats">
+      <div class="roi-stat"><div class="roi-stat-lbl">${roiStats[0]}</div><div class="roi-stat-val">${Math.round(invest)}€</div></div>
+      <div class="roi-stat"><div class="roi-stat-lbl">${roiStats[1]}</div><div class="roi-stat-val" style="color:${grossGain>=0?'var(--green)':'var(--red)'}">${grossGain>=0?'+':''}${Math.round(grossGain)}€</div></div>
+      <div class="roi-stat"><div class="roi-stat-lbl">${roiStats[2]}</div><div class="roi-stat-val" style="color:${col}">${netGain>=0?'+':''}${Math.round(netGain)}€</div></div>
+      <div class="roi-stat"><div class="roi-stat-lbl">${roiStats[3]}</div><div class="roi-stat-val" style="color:${col}">${margeNet>=0?'+':''}${margeNet}%</div></div>
+    </div>
+    <div class="roi-stat" style="margin-top:10px"><div class="roi-stat-lbl">${roiStats[4]}</div><div class="roi-stat-val">${breakeven}€</div></div>
+    ${roi<0?`<div style="margin-top:10px;font-size:10.5px;color:var(--red);font-family:var(--mono)">⚠ ROI ${fr?'négatif':'negative'}</div>`:''}
+    ${roi>=100?`<div style="margin-top:10px;font-size:10.5px;color:var(--green);font-family:var(--mono)">✓ ${fr?'Excellente rentabilité':'Excellent ROI'}</div>`:''}`;
+}
+
+function calcCurr() {
+  const amt=parseFloat(document.getElementById('curr-amt')?.value)||0;
+  const from=document.getElementById('curr-from')?.value||'EUR';
+  const el=document.getElementById('curr-res'); if(!el)return;
+  const pairs=from==='EUR'?[['USD','$',FX.EUR_USD],['GBP','£',FX.EUR_GBP]]:from==='USD'?[['EUR','€',FX.USD_EUR],['GBP','£',FX.USD_GBP]]:[['EUR','€',FX.GBP_EUR],['USD','$',FX.GBP_USD]];
+  el.innerHTML=pairs.map(([to,sym,rate])=>`<div class="curr-res-item"><span class="curr-sym">${sym}</span><strong>${(amt*rate).toFixed(2)}</strong> <span style="color:var(--text4);font-size:9.5px">${to}</span></div>`).join('');
+}
+
+function renderCompare(c) {
+  const fr=S.lang==='fr';
+  const fp=S.compSearch?PLATFORMS.filter(p=>p.coverage.toLowerCase().includes(S.compSearch.toLowerCase())||p.name.toLowerCase().includes(S.compSearch.toLowerCase())):PLATFORMS;
+  const compFields=fr?['Frais vendeur','Liquidité','Paiement','Garantie']:['Seller fees','Liquidity','Payment','Guarantee'];
+  c.innerHTML=`<div class="card">
+    <div class="card-head"><span class="card-title">${fr?'Comparateur de plateformes':'Platform comparator'}</span><span class="card-meta">${PLATFORMS.length} plateformes</span></div>
+    <div class="comp-search-row"><span style="color:var(--text4);font-size:15px">⌕</span><input class="comp-inp" placeholder="${fr?'Filtrer...':'Filter...'}" value="${S.compSearch}" oninput="S.compSearch=this.value;renderCompare(document.getElementById('content'))"></div>
+    <div class="comp-grid">${fp.map(p=>{
+      const feeCol=p.fees<=10?'var(--green)':p.fees<=12?'var(--amber)':'var(--red)';
+      const barColors=[feeCol,'var(--accent)','var(--blue)','var(--green)'];
+      const vals=[p.fees+'%',p.liquidity+'/100',p.speed+'/100',p.guarantee+'%'];
+      const pcts=[100-p.fees,p.liquidity,p.speed,p.guarantee];
+      return`<div class="comp-card">
+        <div class="comp-card-head"><div class="plat-logo" style="background:${p.color}">${p.logo}</div><div><div class="comp-plat-name">${p.name}</div><div class="comp-plat-sub">${p.region}</div></div><div class="comp-badge" style="background:${p.liquidity>=90?'var(--greenbg)':'var(--bg4)'};color:${p.liquidity>=90?'var(--green)':'var(--text3)'};border:1px solid ${p.liquidity>=90?'var(--greenbdr)':'var(--border)'}">${p.liquidity>=90?'TOP':'OK'}</div></div>
+        <div class="comp-rows">${compFields.map((label,i)=>`<div class="comp-row"><span class="comp-row-lbl">${label}</span><div class="comp-row-bar"><div class="comp-bar-track"><div class="comp-bar-fill" style="width:${pcts[i]}%;background:${barColors[i]}"></div></div></div><span class="comp-row-val" style="color:${i===0?feeCol:'var(--text)'}">${vals[i]}</span></div>`).join('')}</div>
+        <div style="padding:6px 16px 6px"><div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${fr?'Recommandé pour':'Best for'} : <span style="color:var(--text2)">${p.coverage}</span></div></div>
+        <div class="comp-pros-cons"><div class="comp-pros"><div class="comp-pc-lbl g">${fr?'Avantages':'Pros'}</div>${p.pros.map(x=>`<div class="comp-pc-item">· ${x}</div>`).join('')}</div><div class="comp-cons"><div class="comp-pc-lbl r">${fr?'Inconvénients':'Cons'}</div>${p.cons.map(x=>`<div class="comp-pc-item">· ${x}</div>`).join('')}</div></div>
+        <div class="comp-footer">${fr?'Frais indicatifs — vérifiez les CGU avant de vendre.':'Indicative fees — check T&Cs before selling.'}</div>
+      </div>`;}).join('')}</div>
+  </div>`;
+}
+
+function renderWatchlist(c) {
+  const fr=S.lang==='fr'; const all=allEvs();
+  c.innerHTML=`
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-head"><span class="card-title">${fr?'Watchlist':'Watchlist'}</span><span class="card-meta">${S.wl.length} events</span></div>
+      <div class="wl-inp-row"><input class="wl-inp" id="wl-inp" placeholder="${fr?'Ajouter un event...':'Add an event...'}" onkeydown="if(event.key==='Enter')addWl()"><button class="wl-add-btn" onclick="addWl()">+ ${fr?'Ajouter':'Add'}</button></div>
+      ${S.wl.length===0?`<div class="empty"><div class="empty-icon">◎</div>${fr?'Watchlist vide':'Watchlist empty'}</div>`:
+        S.wl.map((w,i)=>{const m=all.find(e=>e.name.toLowerCase().includes(w.toLowerCase().split(' ')[0]));
+          return`<div class="wl-item"><div class="wl-dot" style="background:${m?sc(m.score):'#38384a'}"></div><div style="flex:1"><div class="wl-name">${w}</div>${m?`<div class="wl-meta">${m.flag||'🎫'} ${m.date} · +${m.marge}% · ${m.platform}${m.live?' · 📡 live':''}</div>`:'<div class="wl-meta">—</div>'}</div>${m?`<span class="mb ${mc(m.marge)}" style="margin-right:8px">+${m.marge}%</span>`:''}<button class="wl-del" onclick="S.wl.splice(${i},1);saveState();render()">✕</button></div>`;}).join('')}
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">${fr?'Favoris ★':'Favourites ★'}</span></div>
+      ${buildTable(all.filter(e=>e.starred))}
+    </div>`;
+}
+
+function addWl() {
+  const v=document.getElementById('wl-inp').value.trim();
+  if(v&&!S.wl.includes(v)){S.wl.push(v);saveState();toast('"'+v+'" '+( S.lang==='fr'?'ajouté à la watchlist':'added to watchlist'),'★');}
+  render();
+}
+
+/* ══════════════════════════════════════════════
+   SCAN BUTTON
+══════════════════════════════════════════════ */
+async function runScan() {
+  const btn=document.getElementById('scan-btn'),lbl=document.getElementById('scan-lbl'),ic=document.getElementById('scan-ic');
+  btn.classList.add('loading');
+  lbl.textContent=S.lang==='fr'?'Scan...':'Scanning...';
+  const frames=['⟳','↻','⟲'];let i=0;
+  const anim=setInterval(()=>{ic.textContent=frames[i++%3];},300);
+
+  // Recharge Sheet + enrichit avec prix live
+  await loadSheet();
+  if(S.apiUrl)await enrichWithLivePrices();
+
+  clearInterval(anim);
+  btn.classList.remove('loading');
+  lbl.textContent=S.lang==='fr'?'Scanner':'Scan now';
+  ic.textContent='⟳';
+  toast((S.lang==='fr'?'Scan terminé — ':'Scan done — ')+filtered().length+(S.lang==='fr'?' opportunités':' opportunities'),'✓');
+  render();
+}
+
+/* ══════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════ */
+// Restaure statut notifications
+S.notifStatus = localStorage.getItem('tr-notif') || ('Notification' in window ? Notification.permission : 'unsupported');
+if (S.notifStatus === 'granted') registerServiceWorker();
+
+renderMarkets();
+applyLang();
+render();
+
+// Charge le Sheet au démarrage
+loadSheet();
+</script>
+</body>
+</html>
