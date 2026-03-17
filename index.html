@@ -3,12 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#6c63ff">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="TicketRadar">
-  <link rel="apple-touch-icon" href="icon-192.png">
   <title>TicketRadar — Resale Intelligence v4</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -321,6 +315,21 @@
 
     @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr);}.chart-grid,.roi-grid,.comp-grid{grid-template-columns:1fr;}.sidebar{display:none;}}
     @media(max-width:640px){.topbar-center{display:none;}.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+
+    /* ── MOBILE BOTTOM NAV ── */
+    .mobile-nav{position:fixed;bottom:0;left:0;right:0;z-index:200;background:rgba(8,8,14,.97);border-top:1px solid var(--border);padding:6px 4px;padding-bottom:env(safe-area-inset-bottom,6px);display:none;justify-content:space-around;align-items:center;}
+    .mnav-item{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 6px;border-radius:var(--r10);cursor:pointer;transition:all .15s;border:none;background:transparent;min-width:40px;}
+    .mnav-icon{font-size:18px;line-height:1;}
+    .mnav-label{font-size:8.5px;color:var(--text3);font-family:var(--mono);}
+    .mnav-item.active .mnav-label{color:var(--accent3);}
+    .mnav-item.active .mnav-icon{filter:drop-shadow(0 0 4px var(--accent));}
+    @media(max-width:640px){.mobile-nav{display:flex;}.content{padding-bottom:80px;}}
+    @media(min-width:641px){.mobile-nav{display:none!important;}}
+
+    /* ── BACK BUTTON (PWA standalone) ── */
+    .back-btn{display:none;align-items:center;gap:4px;padding:5px 10px;border-radius:var(--r10);background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+    .back-btn:hover{border-color:var(--border2);color:var(--text);}
+    @media(max-width:640px){.back-btn{display:flex;}}
   </style>
 </head>
 <body>
@@ -345,6 +354,7 @@
     </div>
   </div>
   <div class="topbar-right">
+    <button class="back-btn" id="back-btn" onclick="navBack()" style="display:none;">← Retour</button>
     <div class="lang-toggle">
       <button class="lang-btn active" id="lb-fr" onclick="setLang('fr')">FR</button>
       <button class="lang-btn" id="lb-en" onclick="setLang('en')">EN</button>
@@ -392,6 +402,25 @@
   </div>
   <div class="content" id="content"></div>
 </div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="mobile-nav" id="mobile-nav">
+  <button class="mnav-item active" id="mn-dashboard" onclick="nav('dashboard',document.getElementById('nav-dashboard'));updateMobileNav('dashboard')">
+    <span class="mnav-icon">📊</span><span class="mnav-label">Dashboard</span>
+  </button>
+  <button class="mnav-item" id="mn-events" onclick="nav('events',document.getElementById('nav-events'));updateMobileNav('events')">
+    <span class="mnav-icon">🎫</span><span class="mnav-label">Events</span>
+  </button>
+  <button class="mnav-item" id="mn-add" onclick="nav('add',document.getElementById('nav-add'));updateMobileNav('add')">
+    <span class="mnav-icon">➕</span><span class="mnav-label">Ajouter</span>
+  </button>
+  <button class="mnav-item" id="mn-watchlist" onclick="nav('watchlist',document.getElementById('nav-watchlist'));updateMobileNav('watchlist')">
+    <span class="mnav-icon">⭐</span><span class="mnav-label">Watchlist</span>
+  </button>
+  <button class="mnav-item" id="mn-settings" onclick="nav('settings',document.getElementById('nav-settings'));updateMobileNav('settings')">
+    <span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span>
+  </button>
+</nav>
 
 <script>
 /* ══════════════════════════════════════════════
@@ -527,7 +556,14 @@ async function loadSheet() {
   render();
 
   try {
-    const res = await fetch(S.sheetUrl + '&cache=' + Date.now());
+    // iOS Safari PWA needs explicit CORS mode + cache bypass
+    const fetchUrl = S.sheetUrl + (S.sheetUrl.includes('?') ? '&' : '?') + 'cache=' + Date.now();
+    const res = await fetch(fetchUrl, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      headers: { 'Accept': 'text/csv,text/plain,*/*' }
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
     const events = parseSheetCSV(text);
@@ -759,6 +795,20 @@ function onSeuil(v) {
 /* ══════════════════════════════════════════════
    NAV
 ══════════════════════════════════════════════ */
+function updateMobileNav(v) {
+  document.querySelectorAll('.mnav-item').forEach(b => b.classList.remove('active'));
+  const active = document.getElementById('mn-' + v);
+  if (active) active.classList.add('active');
+  // Show back button only when not on dashboard
+  const backBtn = document.getElementById('back-btn');
+  if (backBtn) backBtn.style.display = (v !== 'dashboard') ? 'flex' : 'none';
+}
+
+function navBack() {
+  nav('dashboard', document.getElementById('nav-dashboard'));
+  updateMobileNav('dashboard');
+}
+
 function nav(v, el) {
   S.view = v;
   document.querySelectorAll('.npill').forEach(n => n.classList.remove('active'));
