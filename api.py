@@ -24,8 +24,8 @@ app.add_middleware(
 )
 
 # ── Config Telegram ──
-TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "8661432122:AAHbSAbpjTZceBKIM0CBjjMNMlpJp48mzQw_botfather")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "170104619")
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── Cache ──
 CACHE = {}
