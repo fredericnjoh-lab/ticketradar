@@ -696,7 +696,12 @@ async function registerServiceWorker() {
     if (reg.active) {
       reg.active.postMessage({
         type: 'CONFIG',
-        payload: { sheetUrl: S.sheetUrl, seuil: S.seuil }
+        payload: {
+          sheetUrl: S.sheetUrl,
+          seuil: S.seuil,
+          tgToken: S.tgToken,
+          tgChatId: S.tgChatId
+        }
       });
     }
     console.log('[App] Service Worker enregistré');
@@ -783,7 +788,7 @@ function onSeuil(v) {
   // Met à jour la config du Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.ready.then(reg => {
-      if (reg.active) reg.active.postMessage({ type: 'CONFIG', payload: { sheetUrl: S.sheetUrl, seuil: S.seuil } });
+      if (reg.active) reg.active.postMessage({ type: 'CONFIG', payload: { sheetUrl: S.sheetUrl, seuil: S.seuil, tgToken: S.tgToken, tgChatId: S.tgChatId } });
     });
   }
   render();
@@ -998,7 +1003,16 @@ function saveTgConfig() {
   if (t) S.tgToken = t;
   if (c) S.tgChatId = c;
   saveState();
-  toast(S.lang==='fr'?'Config Telegram sauvegardée ✓':'Telegram config saved ✓', '📱');
+  // Met à jour le Service Worker avec la nouvelle config
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(reg => {
+      if (reg.active) reg.active.postMessage({
+        type: 'CONFIG',
+        payload: { sheetUrl: S.sheetUrl, seuil: S.seuil, tgToken: S.tgToken, tgChatId: S.tgChatId }
+      });
+    });
+  }
+  toast(S.lang==='fr'?'Config Telegram sauvegardée ✓ — Scan auto activé !':'Telegram config saved ✓ — Auto-scan active!', '📱');
 }
 async function testTgDirect() {
   const token = document.getElementById('tg-token-input')?.value.trim() || S.tgToken;
