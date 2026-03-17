@@ -560,21 +560,26 @@ async function loadSheet() {
   render();
 
   try {
-    // Essaie plusieurs proxies CORS en cascade
-    let res = null;
-    const proxies = [
-      'https://corsproxy.io/?' + encodeURIComponent(S.sheetUrl),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(S.sheetUrl),
-      'https://cors-anywhere.herokuapp.com/' + S.sheetUrl,
-      S.sheetUrl  // direct en dernier recours
-    ];
-    for (const url of proxies) {
-      try {
-        res = await fetch(url, { method: 'GET', cache: 'no-store' });
-        if (res.ok) break;
-      } catch(e) { continue; }
+    // Normalise l'URL Sheet + proxy corsproxy.io
+    let sheetUrl = S.sheetUrl;
+    // Force les bons paramètres Google Sheets
+    if (sheetUrl.includes('docs.google.com')) {
+      const base = sheetUrl.split('?')[0];
+      sheetUrl = base + '?gid=0&single=true&output=csv';
     }
-    if (!res || !res.ok) throw new Error('Failed to fetch via all proxies');
+    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(sheetUrl);
+    let res = null;
+    try {
+      res = await fetch(proxyUrl, { 
+        method: 'GET', 
+        cache: 'no-store',
+        headers: { 'Accept': 'text/csv, text/plain, */*' }
+      });
+    } catch(e) {
+      // Fallback direct
+      res = await fetch(sheetUrl, { method: 'GET', cache: 'no-store' });
+    }
+    if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 'network error'));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
     const events = parseSheetCSV(text);
