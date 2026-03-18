@@ -1716,6 +1716,51 @@ function moveKanban(evId, fromCol, toCol) {
   render();
 }
 
+function updateKanbanResale(col, evId, newResale) {
+  const item = S.kanban[col].find(k => k.id === evId);
+  if (!item) return;
+  const val = parseFloat(newResale) || 0;
+  item.resale = val;
+  const net = val * 0.85;
+  item.marge = item.face > 0 ? Math.round(((net - item.face) / item.face) * 100) : 0;
+  saveState();
+  render();
+  toast((S.lang==='fr'?'Prix de revente mis à jour : ':'Resale price updated: ') + val + '€', '✏');
+}
+
+function editKanbanPrice(evId, col) {
+  const item = S.kanban[col].find(k => k.id === evId);
+  if (!item) return;
+  const newPrice = prompt(
+    (S.lang==='fr' ? 'Nouveau prix de revente pour ' : 'New resale price for ') + item.name + ' (€)',
+    item.resale
+  );
+  if (newPrice === null) return; // cancelled
+  const price = parseFloat(newPrice);
+  if (isNaN(price) || price <= 0) { toast(S.lang==='fr'?'Prix invalide':'Invalid price','⚠'); return; }
+  item.resale = price;
+  item.marge = item.face > 0 ? Math.round(((price*0.85 - item.face) / item.face) * 100) : 0;
+  saveState();
+  toast((S.lang==='fr'?'Prix mis à jour : ':'Price updated: ') + price + '€', '✓');
+  render();
+}
+
+function editKanbanQty(evId, col) {
+  const item = S.kanban[col].find(k => k.id === evId);
+  if (!item) return;
+  const newQty = prompt(
+    (S.lang==='fr' ? 'Nombre de billets pour ' : 'Number of tickets for ') + item.name,
+    item.qty || 1
+  );
+  if (newQty === null) return;
+  const qty = parseInt(newQty);
+  if (isNaN(qty) || qty <= 0) { toast(S.lang==='fr'?'Quantité invalide':'Invalid quantity','⚠'); return; }
+  item.qty = qty;
+  saveState();
+  toast((S.lang==='fr'?'Quantité mise à jour : ':'Quantity updated: ') + qty, '✓');
+  render();
+}
+
 function calcKanbanPnL() {
   const bought  = [...S.kanban.bought, ...S.kanban.selling, ...S.kanban.sold];
   const selling = S.kanban.selling;
@@ -1811,9 +1856,19 @@ function renderKanban(c) {
                         <div style="font-size:8px;color:var(--t4);font-family:var(--font-mono)">FACE</div>
                         <div style="font-size:12px;font-weight:600;font-family:var(--font-mono)">${k.face}\u20ac</div>
                       </div>
-                      <div style="background:var(--bg2);border-radius:4px;padding:5px 7px">
-                        <div style="font-size:8px;color:var(--t4);font-family:var(--font-mono)">REVENTE</div>
-                        <div style="font-size:12px;font-weight:600;font-family:var(--font-mono)">${k.resale}\u20ac</div>
+                      <div style="background:var(--bg2);border:1px solid var(--goldbdr);border-radius:4px;padding:5px 7px">
+                        <div style="font-size:8px;color:var(--gold2);font-family:var(--font-mono)">REVENTE ✏</div>
+                        <div style="display:flex;align-items:center;gap:3px">
+                          <input
+                            type="number"
+                            value="${k.resale}"
+                            min="0"
+                            style="width:100%;background:transparent;border:none;outline:none;font-size:12px;font-weight:600;font-family:var(--font-mono);color:var(--t1);padding:0"
+                            onchange="updateKanbanResale('${col}',${k.id},this.value)"
+                            onclick="event.stopPropagation()"
+                          >
+                          <span style="font-size:10px;color:var(--t3)">€</span>
+                        </div>
                       </div>
                     </div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:5px 7px;background:var(--bg2);border-radius:4px">
