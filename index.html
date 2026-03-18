@@ -1716,56 +1716,125 @@ function moveKanban(evId, fromCol, toCol) {
   render();
 }
 
+function calcKanbanPnL() {
+  const bought  = [...S.kanban.bought, ...S.kanban.selling, ...S.kanban.sold];
+  const selling = S.kanban.selling;
+  const sold    = S.kanban.sold;
+  const totalInvested = bought.reduce((s,k)  => s + (k.face   * (k.qty||1)), 0);
+  const expectedGain  = selling.reduce((s,k) => s + ((k.resale * 0.85 - k.face) * (k.qty||1)), 0);
+  const realizedGain  = sold.reduce((s,k)    => s + ((k.soldPrice||k.resale) * 0.85 - k.face) * (k.qty||1), 0);
+  const totalROI      = totalInvested > 0 ? Math.round(((expectedGain + realizedGain) / totalInvested) * 100) : 0;
+  const totalItems    = Object.values(S.kanban).flat().length;
+  return { totalInvested, expectedGain, realizedGain, totalROI, totalItems };
+}
+
 function renderKanban(c) {
   const fr = S.lang === 'fr';
-  const labels = fr ? KANBAN_LABELS_FR : KANBAN_LABELS_EN;
-  const colors = {watch:'var(--blue)',bought:'var(--gold)',selling:'var(--purple)',sold:'var(--green)'};
-  const nextCol = {watch:'bought',bought:'selling',selling:'sold',sold:null};
-  const nextLbl = fr
+  const labels   = fr ? KANBAN_LABELS_FR : KANBAN_LABELS_EN;
+  const colors   = {watch:'var(--blue)',bought:'var(--gold)',selling:'var(--purple)',sold:'var(--green)'};
+  const nextCol  = {watch:'bought',bought:'selling',selling:'sold',sold:null};
+  const nextLbl  = fr
     ? {watch:'→ Acheté',bought:'→ En vente',selling:'→ Vendu',sold:null}
     : {watch:'→ Bought',bought:'→ Selling',selling:'→ Sold',sold:null};
 
-  const totalItems = Object.values(S.kanban).flat().length;
+  const pnl    = calcKanbanPnL();
+  const roiCol = pnl.totalROI >= 50 ? 'var(--green)' : pnl.totalROI >= 0 ? 'var(--gold2)' : 'var(--red)';
 
   c.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">&#x1F4B9; ${fr?'Tableau P&L':'P&L Dashboard'}</span>
+        <span class="card-meta">${pnl.totalItems} ${fr?'tickets suivis':'tickets tracked'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 18px;">
+        ${[
+          {lbl:fr?'TOTAL INVESTI':'INVESTED', val:Math.round(pnl.totalInvested).toLocaleString()+'\u20ac', col:'var(--blue)', sub:fr?'billets achet\u00e9s':'bought'},
+          {lbl:fr?'GAIN ESP\u00c9R\u00c9':'EXPECTED', val:(pnl.expectedGain>=0?'+':'')+Math.round(pnl.expectedGain).toLocaleString()+'\u20ac', col:'var(--purple)', sub:fr?'en vente':'selling'},
+          {lbl:fr?'GAIN R\u00c9ALIS\u00c9':'REALIZED', val:(pnl.realizedGain>=0?'+':'')+Math.round(pnl.realizedGain).toLocaleString()+'\u20ac', col:'var(--green)', sub:fr?'vendus':'sold'},
+          {lbl:'ROI GLOBAL', val:(pnl.totalROI>=0?'+':'')+pnl.totalROI+'%', col:roiCol, sub:fr?'rendement net':'net return'},
+        ].map(k => `
+          <div style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r12);padding:14px;position:relative;overflow:hidden;">
+            <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${k.col},transparent)"></div>
+            <div style="font-family:var(--font-mono);font-size:8.5px;color:var(--t3);letter-spacing:.1em;margin-bottom:8px">${k.lbl}</div>
+            <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:${k.col}">${k.val}</div>
+            <div style="font-size:9.5px;color:var(--t3);margin-top:4px">${k.sub}</div>
+          </div>`).join('')}
+      </div>
+      ${pnl.totalInvested > 0 ? `
+      <div style="padding:0 18px 16px">
+        <div style="display:flex;justify-content:space-between;font-size:9.5px;font-family:var(--font-mono);color:var(--t3);margin-bottom:6px">
+          <span>ROI progression</span>
+          <span style="color:${roiCol}">${pnl.totalROI}%</span>
+        </div>
+        <div style="height:6px;background:var(--bg5);border-radius:3px;overflow:hidden">
+          <div style="height:100%;border-radius:3px;background:${roiCol};width:${Math.min(Math.max(pnl.totalROI,0),100)}%;transition:width .4s"></div>
+        </div>
+      </div>` : `
+      <div style="padding:10px 18px 14px;font-size:11px;color:var(--t3);font-family:var(--font-mono)">
+        ${fr?'Ajoute des tickets achet\u00e9s pour voir ton P&L':'Add bought tickets to see your P&L'}
+      </div>`}
+    </div>
+
     <div class="card">
       <div class="card-head">
-        <span class="card-title">🗂️ Kanban ${fr?'— Suivi de tes tickets':'— Ticket tracker'}</span>
-        <span class="card-meta">${totalItems} ${fr?'tickets suivis':'tickets tracked'}</span>
-      </div>
-      <div style="padding:10px 18px;border-bottom:1px solid var(--b3);font-size:11px;color:var(--t3);font-family:var(--font-mono);">
-        ${fr?'Ajoute des events depuis l\'onglet Événements → bouton "+ Kanban"':'Add events from Events tab → "+ Kanban" button'}
+        <span class="card-title">&#x1F5C2;&#xFE0F; Kanban</span>
+        <span class="card-meta">${fr?'Ajoute depuis \u00c9v\u00e9nements \u2192 bouton + Kanban':'Add from Events \u2192 + Kanban button'}</span>
       </div>
       <div class="kanban-board">
-        ${KANBAN_COLS.map(col => `
+        ${KANBAN_COLS.map(col => {
+          const colItems   = S.kanban[col];
+          const colInvested = colItems.reduce((s,k) => s+(k.face*(k.qty||1)),0);
+          const colGain    = colItems.reduce((s,k) => s+((k.resale*0.85-k.face)*(k.qty||1)),0);
+          return `
           <div class="kanban-col">
             <div class="kanban-col-head">
               <span class="kanban-col-title" style="color:${colors[col]}">${labels[col].toUpperCase()}</span>
-              <span class="kanban-count">${S.kanban[col].length}</span>
+              <span class="kanban-count">${colItems.length}</span>
             </div>
+            ${colItems.length > 0 ? `
+            <div style="padding:6px 10px;border-bottom:1px solid var(--b3);display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:9px;color:var(--t3)">
+              <span>${Math.round(colInvested)}\u20ac ${fr?'investi':'invested'}</span>
+              <span style="color:${colGain>=0?'var(--green)':'var(--red)'}">${colGain>=0?'+':''}${Math.round(colGain)}\u20ac</span>
+            </div>` : ''}
             <div class="kanban-cards">
-              ${S.kanban[col].length === 0
+              ${colItems.length === 0
                 ? `<div class="kanban-empty">${fr?'Vide':'Empty'}</div>`
-                : S.kanban[col].map(k => `
+                : colItems.map(k => {
+                  const netGain = Math.round((k.resale*0.85-k.face)*(k.qty||1));
+                  const gainCol = netGain>=0?'var(--green)':'var(--red)';
+                  return `
                   <div class="kanban-card kc-${col}">
-                    <div class="kc-name">${k.flag||'🎫'} ${k.name}</div>
-                    <div class="kc-meta">${k.date||''} · ${k.platform||''}</div>
-                    <div class="kc-marge" style="color:${k.marge>=100?'var(--green)':k.marge>=50?'var(--gold2)':'var(--t3)'}">+${k.marge}% · ${k.face}€→${k.resale}€</div>
-                    <div style="font-size:9px;color:var(--t4);font-family:var(--font-mono);margin-top:4px">${fr?'Ajouté le':'Added'} ${k.addedAt}</div>
-                    <div class="kc-actions">
-                      <button class="kc-btn" onclick="openPlatform(${k.id})" style="color:var(--gold2);border-color:var(--goldbdr)">🛒 Acheter</button>
-                      ${nextCol[col] ? `<button class="kc-btn" onclick="moveKanban(${k.id},'${col}','${nextCol[col]}')">${nextLbl[col]}</button>` : ''}
-                      <button class="kc-btn danger" onclick="moveKanban(${k.id},'${col}',null)">✕</button>
+                    <div class="kc-name">${k.flag||'\ud83c\udfab'} ${k.name}</div>
+                    <div class="kc-meta">${k.date||''} \u00b7 ${k.platform||''}</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:8px">
+                      <div style="background:var(--bg2);border-radius:4px;padding:5px 7px">
+                        <div style="font-size:8px;color:var(--t4);font-family:var(--font-mono)">FACE</div>
+                        <div style="font-size:12px;font-weight:600;font-family:var(--font-mono)">${k.face}\u20ac</div>
+                      </div>
+                      <div style="background:var(--bg2);border-radius:4px;padding:5px 7px">
+                        <div style="font-size:8px;color:var(--t4);font-family:var(--font-mono)">REVENTE</div>
+                        <div style="font-size:12px;font-weight:600;font-family:var(--font-mono)">${k.resale}\u20ac</div>
+                      </div>
                     </div>
-                  </div>
-                `).join('')
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:5px 7px;background:var(--bg2);border-radius:4px">
+                      <span style="font-size:8.5px;color:var(--t3);font-family:var(--font-mono)">GAIN NET</span>
+                      <span style="font-size:13px;font-weight:700;font-family:var(--font-mono);color:${gainCol}">${netGain>=0?'+':''}${netGain}\u20ac</span>
+                    </div>
+                    <div class="kc-actions" style="margin-top:8px">
+                      <button class="kc-btn" onclick="openPlatform(${k.id})" style="color:var(--gold2);border-color:var(--goldbdr)">\ud83d\udecd</button>
+                      ${nextCol[col] ? `<button class="kc-btn" onclick="moveKanban(${k.id},'${col}','${nextCol[col]}')">${nextLbl[col]}</button>` : ''}
+                      <button class="kc-btn danger" onclick="moveKanban(${k.id},'${col}',null)">\u2715</button>
+                    </div>
+                  </div>`;
+                }).join('')
               }
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
 }
+
 
 /* ══════════════════════════════════════════════
    PRICE DROPS
