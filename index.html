@@ -1641,7 +1641,7 @@ function buildTable(evs) {
       ${th('marge','MARGE ↓')}
       ${th('score','SCORE')}
       <th>PLATEFORME</th>
-      <th>ACTION</th>
+      <th>ACTIONS</th>
     </tr></thead>
     <tbody>${evs.map(e => {
       const drop = hasDrop(e);
@@ -1662,7 +1662,25 @@ function buildTable(evs) {
       <td><span class="mb ${mc(e.marge)}">+${e.marge}%</span></td>
       <td><div style="display:flex;align-items:center;gap:6px"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
       <td><span class="plat-tag">${e.platform}</span></td>
-      <td><button onclick="event.stopPropagation();addToKanban(${e.id},'watch')" style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:4px;padding:3px 8px;font-size:9px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono);">+ Kanban</button></td>
+      <td>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button onclick="event.stopPropagation();openPlatform(${e.id})"
+            style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:4px;padding:3px 9px;font-size:9px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono);white-space:nowrap;"
+            title="${e.platform}">
+            🛒 ${(e.platform||'Buy').split(' ')[0].split('/')[0].slice(0,8)}
+          </button>
+          <button onclick="event.stopPropagation();addToKanban(${e.id},'watch')"
+            style="background:var(--bg4);border:1px solid var(--b3);border-radius:4px;padding:3px 7px;font-size:9px;color:var(--t2);cursor:pointer;font-family:var(--font-mono);"
+            title="Add to Kanban">
+            🗂
+          </button>
+          <button onclick="event.stopPropagation();copyEventSummary(${e.id})"
+            style="background:var(--bg4);border:1px solid var(--b3);border-radius:4px;padding:3px 7px;font-size:9px;color:var(--t2);cursor:pointer;font-family:var(--font-mono);"
+            title="Copy summary">
+            📋
+          </button>
+        </div>
+      </td>
     </tr>`;
     }).join('')}</tbody>
   </table></div>`;
@@ -1735,6 +1753,7 @@ function renderKanban(c) {
                     <div class="kc-marge" style="color:${k.marge>=100?'var(--green)':k.marge>=50?'var(--gold2)':'var(--t3)'}">+${k.marge}% · ${k.face}€→${k.resale}€</div>
                     <div style="font-size:9px;color:var(--t4);font-family:var(--font-mono);margin-top:4px">${fr?'Ajouté le':'Added'} ${k.addedAt}</div>
                     <div class="kc-actions">
+                      <button class="kc-btn" onclick="openPlatform(${k.id})" style="color:var(--gold2);border-color:var(--goldbdr)">🛒 Acheter</button>
                       ${nextCol[col] ? `<button class="kc-btn" onclick="moveKanban(${k.id},'${col}','${nextCol[col]}')">${nextLbl[col]}</button>` : ''}
                       <button class="kc-btn danger" onclick="moveKanban(${k.id},'${col}',null)">✕</button>
                     </div>
@@ -1774,7 +1793,10 @@ function renderDrops(c) {
               <div class="drop-meta">${e.prevResale}€ → ${e.resale}€ · ${e.platform} · ${e.date||''}</div>
             </div>
             <div class="drop-pct">${pct}%</div>
-            ${isGoodBuy ? `<button class="drop-action" onclick="addToKanban(${e.id},'watch')">${fr?'Acheter':'Buy now'}</button>` : ''}
+            <div style="display:flex;gap:6px;flex-shrink:0">
+              ${isGoodBuy ? `<button class="drop-action" onclick="openPlatform(${e.id})">${fr?'🛒 Acheter':'🛒 Buy'}</button>` : ''}
+              <button class="drop-action" style="background:var(--goldbg);border-color:var(--goldbdr);color:var(--gold2)" onclick="addToKanban(${e.id},'watch')">🗂 Kanban</button>
+            </div>
           </div>`;
         }).join('')
       }
@@ -2451,6 +2473,46 @@ async function testApi() {
 /* ══════════════════════════════════════════════
    SCAN
 ══════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════
+   PLATFORM LINKS
+══════════════════════════════════════════════ */
+function getPlatformUrl(ev) {
+  const name = (ev.name || '').replace(/–|—|-/g, ' ').replace(/\s+/g,' ').trim();
+  const q = encodeURIComponent(name);
+  const platform = (ev.platform || '').toLowerCase();
+  if (platform.includes('viagogo'))      return 'https://www.viagogo.com/ww/Search?q=' + q;
+  if (platform.includes('seatgeek'))     return 'https://seatgeek.com/search?q=' + q;
+  if (platform.includes('ticketmaster') && platform.includes('fr')) return 'https://www.ticketmaster.fr/recherche?q=' + q;
+  if (platform.includes('ticketmaster')) return 'https://www.ticketmaster.com/search?q=' + q;
+  if (platform.includes('fnac'))         return 'https://www.fnacspectacles.com/search?query=' + q;
+  if (platform.includes('ticketswap'))   return 'https://www.ticketswap.fr/search#' + q;
+  if (platform.includes('stubhub') && platform.includes('uk')) return 'https://www.stubhub.co.uk/search?q=' + q;
+  return 'https://www.stubhub.com/search?q=' + q;
+}
+
+function openPlatform(evId) {
+  // Prevent double calls
+  if (window._openPlatformLock) return;
+  window._openPlatformLock = true;
+  setTimeout(() => { window._openPlatformLock = false; }, 500);
+  
+  const ev = allEvs().find(e => e.id === evId);
+  if (!ev) return;
+  const url = getPlatformUrl(ev);
+  // Only take the first URL if somehow concatenated
+  const firstUrl = url.indexOf('https://', 8) > 0
+    ? url.substring(0, url.indexOf('https://', 8))
+    : url;
+  window.open(firstUrl, '_blank', 'noopener,noreferrer');
+}
+
+function copyEventSummary(evId) {
+  const ev = allEvs().find(e => e.id === evId);
+  if (!ev) return;
+  const txt = `${ev.flag||'🎫'} ${ev.name} · +${ev.marge}% · ${ev.face}€→${ev.resale}€ · ${ev.platform} · ${ev.date||''}`;
+  navigator.clipboard.writeText(txt).then(() => toast(S.lang==='fr'?'Copié !':'Copied!', '📋'));
+}
+
 async function runScan() {
   const btn=document.getElementById('scan-btn'),lbl=document.getElementById('scan-lbl'),ic=document.getElementById('scan-ic');
   btn.classList.add('loading');
