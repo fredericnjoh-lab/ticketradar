@@ -49,8 +49,7 @@ const S = {
   liveData: {}, charts: {},
 };
 
-document.getElementById('seuil').value = S.seuil;
-document.getElementById('seuil-val').textContent = '+' + S.seuil + '%';
+// DOM manipulation moved to init() below
 
 /* ══════════════════════════════════════════════
    HELPERS
@@ -1429,8 +1428,55 @@ async function runScan() {
 /* ══════════════════════════════════════════════
    INIT
 ══════════════════════════════════════════════ */
-if (S.notifStatus === 'granted') registerServiceWorker();
-renderMarkets();
-applyLang();
-render();
-loadSheet();
+/* ── Init ── */
+function init() {
+  // Init DOM elements
+  const seuilEl = document.getElementById('seuil');
+  const seuilVal = document.getElementById('seuil-val');
+  if (seuilEl) seuilEl.value = S.seuil;
+  if (seuilVal) seuilVal.textContent = '+' + S.seuil + '%';
+
+  if (S.notifStatus === 'granted') registerServiceWorker();
+  renderMarkets();
+  applyLang();
+  render();
+  loadSheet();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+
+/* ── Expose functions globally for onclick handlers ── */
+window.nav              = nav;
+window.navBack          = navBack;
+window.setLang          = setLang;
+window.runScan          = runScan;
+window.onSeuil          = onSeuil;
+window.toggleMkt        = toggleMkt;
+window.toggleStar       = toggleStar;
+window.sortBy           = sortBy;
+window.addToKanban      = addToKanban;
+window.moveKanban       = moveKanban;
+window.openPlatform     = openPlatform;
+window.copyEventSummary = copyEventSummary;
+window.updateKanbanResale = updateKanbanResale;
+window.addWl            = addWl;
+window.saveEvent        = saveEvent;
+window.resetForm        = resetForm;
+window.deleteCustom     = deleteCustom;
+window.calcPreview      = calcPreview;
+window.calcROI          = calcROI;
+window.calcCurr         = calcCurr;
+window.saveSheetUrl     = saveSheetUrl;
+window.saveApiUrl       = saveApiUrl;
+window.testApi          = testApi;
+window.saveTgConfig     = saveTgConfig;
+window.testTgDirect     = testTgDirect;
+window.loadSheet        = loadSheet;
+window.requestNotifications = requestNotifications;
+window.disableNotifications = disableNotifications;
+window.updateMobileNav  = updateMobileNav;
+window.renderCompare    = renderCompare;
