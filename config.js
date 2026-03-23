@@ -11,7 +11,7 @@ const CONFIG = {
   // ── Backend API (Node.js Express) ──
   // En local : 'http://localhost:3000'
   // En prod  : 'https://ticketradar-backend.onrender.com'
-  BACKEND_URL: localStorage.getItem('tr-backend-url') || 'https://ticketradar-api.onrender.com',
+  BACKEND_URL: localStorage.getItem('tr-backend-url') || 'https://ticketradar-backend.onrender.com',
 
   // ── Telegram (stocké localement, jamais exposé) ──
   TG_TOKEN:   localStorage.getItem('tr-tg-token')  || '',
