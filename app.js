@@ -1,102 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <!-- CSP géré par GitHub Pages -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>TicketRadar — Resale Intelligence v5</title>
 
-// ==========================
-// CONFIG PLATFORM FEES
-// ==========================
-const PLATFORM_RULES = {
-  stubhub: { sellerFee: 0.15 },
-  viagogo: { sellerFee: 0.15 },
-  seatgeek: { sellerFee: 0.10 },
-  ticketmaster: { sellerFee: 0.10 },
-  ticketswap: { sellerFee: 0.08 },
-  fnac: { sellerFee: 0.12 }
-};
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#D4A843">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TicketRadar">
+  <link rel="apple-touch-icon" href="icon-192.png">
 
-function getSellerFee(platformName = '') {
-  const p = platformName.toLowerCase();
-  if (p.includes('stubhub')) return PLATFORM_RULES.stubhub.sellerFee;
-  if (p.includes('viagogo')) return PLATFORM_RULES.viagogo.sellerFee;
-  if (p.includes('seatgeek')) return PLATFORM_RULES.seatgeek.sellerFee;
-  if (p.includes('ticketmaster')) return PLATFORM_RULES.ticketmaster.sellerFee;
-  if (p.includes('ticketswap')) return PLATFORM_RULES.ticketswap.sellerFee;
-  if (p.includes('fnac')) return PLATFORM_RULES.fnac.sellerFee;
-  return 0.15;
-}
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 
-function calcMargin(face, resale, platformName = '') {
-  if (!face || !resale) return 0;
-  const fee = getSellerFee(platformName);
-  const net = resale * (1 - fee);
-  return Math.round(((net - face) / face) * 100);
-}
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
 
-// ==========================
-// LOAD GOOGLE SHEET
-// ==========================
-async function loadSheet() {
-  const infoEl = document.getElementById('data-source-info');
+  <!-- App styles -->
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
 
-  if (!S.sheetUrl) {
-    infoEl.innerHTML = '❌ No URL';
-    return;
-  }
+<!-- Toast notification -->
+<div class="toast" id="toast">
+  <span id="t-icon"></span>
+  <span id="t-msg"></span>
+</div>
 
-  try {
-    const res = await fetch(S.sheetUrl);
-    if (!res.ok) throw new Error("Fetch error");
+<!-- ══ TOPBAR ══ -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-mark">TR</div>
+    <div class="logo-text">
+      <div class="logo-name">TicketRadar</div>
+      <div class="logo-tag">resale intelligence v5</div>
+    </div>
+  </div>
+  <div class="nav-center">
+    <div class="nav-pills">
+      <button class="npill active" onclick="nav('dashboard',this)" id="nav-dashboard">Dashboard</button>
+      <button class="npill" onclick="nav('events',this)" id="nav-events">Événements</button>
+      <button class="npill" onclick="nav('kanban',this)" id="nav-kanban">Kanban</button>
+      <button class="npill" onclick="nav('drops',this)" id="nav-drops">📉 Chutes</button>
+      <button class="npill" onclick="nav('add',this)" id="nav-add">+ Ajouter</button>
+      <button class="npill" onclick="nav('roi',this)" id="nav-roi">ROI</button>
+      <button class="npill" onclick="nav('compare',this)" id="nav-compare">Compare</button>
+      <button class="npill" onclick="nav('watchlist',this)" id="nav-watchlist">Watchlist</button>
+      <button class="npill" onclick="nav('settings',this)" id="nav-settings">⚙</button>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="back-btn" id="back-btn" onclick="navBack()" style="display:none">← Back</button>
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="lb-fr" onclick="setLang('fr')">FR</button>
+      <button class="lang-btn" id="lb-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="status-dot" id="status-dot"></div>
+    <span class="status-lbl" id="status-lbl">—</span>
+    <button class="scan-btn" id="scan-btn" onclick="runScan()">
+      <span class="scan-spin" id="scan-ic">⟳</span>
+      <span id="scan-lbl">Scanner</span>
+    </button>
+  </div>
+</div>
 
-    const text = await res.text();
-    console.log("RAW CSV:", text);
+<!-- ══ SHELL ══ -->
+<div class="shell">
 
-    const events = parseCsv(text);
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-section">
+      <div class="sb-lbl" id="sb-mkt-lbl">MARCHÉS</div>
+      <div id="mkt-list"></div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-lbl" id="sb-seuil-lbl">SEUIL ALERTE</div>
+      <div class="seuil-wrap">
+        <div class="seuil-row">
+          <span class="seuil-lbl" id="sb-min-lbl">marge min.</span>
+          <span id="seuil-val">+30%</span>
+        </div>
+        <input type="range" min="10" max="200" step="5" value="30" id="seuil" oninput="onSeuil(this.value)">
+        <div style="display:flex;justify-content:space-between;font-size:8.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">
+          <span>10%</span><span>200%</span>
+        </div>
+      </div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-lbl">SOURCE</div>
+      <div style="padding:0 6px">
+        <div id="data-source-info" style="font-size:10px;color:var(--t3);line-height:1.8;font-family:var(--font-mono)">En attente...</div>
+      </div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-lbl">TELEGRAM</div>
+      <div style="padding:0 6px">
+        <div id="tg-sidebar" style="font-size:10px;color:var(--t3);font-family:var(--font-mono)">Non configuré</div>
+      </div>
+    </div>
+    <div style="margin-top:auto;padding:0 6px">
+      <div style="font-size:8.5px;color:var(--t4);font-family:var(--font-mono);line-height:1.8">
+        TicketRadar v5<br>
+        Sheet · Telegram · Kanban<br>
+        Prix live · Auto-scan ⏱
+      </div>
+    </div>
+  </div>
 
-    if (!events.length) throw new Error("Empty parse");
+  <!-- Main content -->
+  <div class="content" id="content"></div>
 
-    S.sheetEvents = events;
-    S.sheetLoaded = true;
+</div>
 
-    infoEl.innerHTML = `✅ ${events.length} events`;
+<!-- ══ MOBILE NAV ══ -->
+<nav class="mobile-nav" id="mobile-nav">
+  <button class="mnav-item active" id="mn-dashboard" onclick="nav('dashboard',document.getElementById('nav-dashboard'));updateMobileNav('dashboard')">
+    <span class="mnav-icon">📊</span><span class="mnav-label">Home</span>
+  </button>
+  <button class="mnav-item" id="mn-events" onclick="nav('events',document.getElementById('nav-events'));updateMobileNav('events')">
+    <span class="mnav-icon">🎫</span><span class="mnav-label">Events</span>
+  </button>
+  <button class="mnav-item" id="mn-kanban" onclick="nav('kanban',document.getElementById('nav-kanban'));updateMobileNav('kanban')">
+    <span class="mnav-icon">🗂️</span><span class="mnav-label">Kanban</span>
+  </button>
+  <button class="mnav-item" id="mn-drops" onclick="nav('drops',document.getElementById('nav-drops'));updateMobileNav('drops')">
+    <span class="mnav-icon">📉</span><span class="mnav-label">Chutes</span>
+  </button>
+  <button class="mnav-item" id="mn-settings" onclick="nav('settings',document.getElementById('nav-settings'));updateMobileNav('settings')">
+    <span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span>
+  </button>
+</nav>
 
-    render();
+<!-- ══ SCRIPTS ══ -->
+<!-- Config first (constants, data) -->
+<script src="./config.js"></script>
+<!-- App logic -->
+<script src="./app.js"></script>
 
-  } catch (err) {
-    console.error(err);
-    infoEl.innerHTML = `❌ ${err.message}`;
-  }
-}
-
-// ==========================
-// PARSE CSV (ROBUST)
-// ==========================
-function parseCsv(text) {
-  const rows = text.split('\n').map(r => r.split(','));
-
-  if (rows.length < 2) return [];
-
-  const headers = rows[0].map(h => h.trim().toLowerCase());
-
-  return rows.slice(1).map((cols, i) => {
-    const row = {};
-    headers.forEach((h, idx) => {
-      row[h] = (cols[idx] || '').trim();
-    });
-
-    const face = Number(row.face);
-    const resale = Number(row.resale);
-
-    return {
-      id: i + 1,
-      name: row.name,
-      sub: row.sub,
-      date: row.date,
-      h: row.horizon || 'mid',
-      country: row.country,
-      flag: row.flag,
-      cat: row.cat,
-      platform: row.platform,
-      face,
-      resale,
-      marge: calcMargin(face, resale, row.platform),
-      score: Number(row.score || 8)
-    };
-  }).filter(e => e.name && e.face > 0);
-}
+</body>
+</html>
