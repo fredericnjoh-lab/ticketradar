@@ -20,6 +20,8 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
   <!-- App styles -->
   <link rel="stylesheet" href="./styles.css">
@@ -51,6 +53,9 @@
       <button class="npill" onclick="nav('roi',this)" id="nav-roi">ROI</button>
       <button class="npill" onclick="nav('compare',this)" id="nav-compare">Compare</button>
       <button class="npill" onclick="nav('watchlist',this)" id="nav-watchlist">Watchlist</button>
+      <button class="npill" onclick="nav('history',this)" id="nav-history">📈 Prix</button>
+      <button class="npill" onclick="nav('map',this)" id="nav-map">🗺️ Carte</button>
+      <button class="npill" onclick="nav('discover',this)" id="nav-discover">🔍 Découvrir</button>
       <button class="npill" onclick="nav('settings',this)" id="nav-settings">⚙</button>
     </div>
   </div>
@@ -140,7 +145,7 @@
 <!-- Config first (constants, data) -->
 <script src="./config.js"></script>
 <!-- App logic -->
-<script src="./app.v5.js"></script>
+<script src="./app.js"></script>
 
 </body>
 </html>
