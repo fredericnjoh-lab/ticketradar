@@ -123,8 +123,18 @@ function sortBy(col) {
 }
 
 function toggleStar(id) {
-  const e = allEvs().find(x => x.id === id);
-  if (e) { e.starred = !e.starred; saveState(); render(); }
+  let e = S.sheetEvents.find(x => x.id === id)
+       || S.customEvents.find(x => x.id === id)
+       || FALLBACK_EVENTS.find(x => x.id === id);
+  if (!e) return;
+  e.starred = !e.starred;
+  const starred = JSON.parse(localStorage.getItem('tr-starred') || '[]');
+  if (e.starred) { if (!starred.includes(id)) starred.push(id); }
+  else { const i = starred.indexOf(id); if (i > -1) starred.splice(i,1); }
+  localStorage.setItem('tr-starred', JSON.stringify(starred));
+  saveState();
+  render();
+  toast(e.starred ? '★ Ajouté aux favoris' : '☆ Retiré des favoris', e.starred ? '★' : '☆');
 }
 
 /* ══════════════════════════════════════════════
@@ -244,7 +254,7 @@ function updateDataSourceInfo(status, count=0, error='') {
 async function enrichWithLivePrices() {
   if (!S.apiUrl) return;
   try {
-    const res = await fetch(S.apiUrl + '/prices');
+    const res = await fetch((S.apiUrl || CONFIG.BACKEND_URL) + '/api/prices');
     if (!res.ok) return;
     const data = await res.json();
     const prices = data.data || data;
@@ -1461,7 +1471,11 @@ function init() {
   if (seuilVal) seuilVal.textContent = '+' + S.seuil + '%';
 
   if (S.notifStatus === 'granted') registerServiceWorker();
-  fetchLiveFX(); // Taux de change live au démarrage
+  fetchLiveFX();
+  const _starred = JSON.parse(localStorage.getItem('tr-starred') || '[]');
+  [...FALLBACK_EVENTS, ...S.sheetEvents, ...S.customEvents].forEach(e => {
+    if (_starred.includes(e.id)) e.starred = true;
+  });
   renderMarkets();
   applyLang();
   render();
