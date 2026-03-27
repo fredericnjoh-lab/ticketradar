@@ -63,7 +63,7 @@ const S = {
   tgToken: localStorage.getItem('tr-tg-token') || '',
   tgChatId: localStorage.getItem('tr-tg-chatid') || '',
   apiUrl: localStorage.getItem('tr-api-url') || CONFIG.BACKEND_URL || '',
-  compSearch: '', nextId: 300, _discoveredEvents: [], theme: localStorage.getItem('tr-theme') || 'dark',
+  compSearch: '', nextId: 300, _discoveredEvents: [], _upcoming: [], theme: localStorage.getItem('tr-theme') || 'dark',
   sheetEvents: [], loadingSheet: false, sheetLoaded: false, sheetError: '',
   notifStatus: localStorage.getItem('tr-notif') || 'unknown',
   liveData: {}, charts: {},
@@ -885,6 +885,28 @@ function renderDash(c) {
       </div>
     </div>
 
+    ${(S._upcoming||[]).length > 0 ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">⏰ ${fr?'Events imminents':'Upcoming events'}</span>
+        <span class="card-meta">${(S._upcoming||[]).length} ${fr?'dans les 30 jours':'within 30 days'}</span>
+      </div>
+      ${(S._upcoming||[]).slice(0,5).map(e => {
+        const urgCol = e.days <= 1 ? 'var(--red)' : e.days <= 3 ? 'var(--gold2)' : 'var(--green)';
+        const urgIcon = e.days <= 1 ? '🚨' : e.days <= 3 ? '⚡' : '📅';
+        return `<div class="alert-row">
+          <div class="alert-icon" style="background:${urgCol}15;border:1px solid ${urgCol}40">${urgIcon}</div>
+          <div style="flex:1">
+            <div class="alert-name">${e.flag||'🎫'} ${e.name}</div>
+            <div class="alert-desc">${e.date} · +${e.marge}%</div>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${urgCol}">
+            ${e.days === 0 ? "AUJOURD'HUI" : e.days === 1 ? 'DEMAIN' : 'J-'+e.days}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
         <span class="card-title">${fr?'Alertes récentes':'Recent alerts'}</span>
@@ -1501,6 +1523,27 @@ function applyTheme() {
   if (btn) btn.textContent = S.theme === 'light' ? '🌙' : '☀️';
 }
 
+async function checkCountdownAlerts(events) {
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return;
+  try {
+    const res = await fetch(backendUrl + '/api/countdown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events, chatId: S.tgChatId })
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.sent > 0) {
+      toast(`⏰ ${data.sent} rappel(s) J-X envoyé(s) !`, '⏰');
+    }
+    // Show upcoming events badge in dashboard
+    if (data.upcoming?.length) {
+      S._upcoming = data.upcoming;
+    }
+  } catch(e) { console.warn('[Countdown]', e.message); }
+}
+
 async function runScan() {
   const btn=document.getElementById('scan-btn'),lbl=document.getElementById('scan-lbl'),ic=document.getElementById('scan-ic');
   btn.classList.add('loading');
@@ -1515,6 +1558,8 @@ async function runScan() {
   lbl.textContent = S.lang==='fr'?'Scanner':'Scan now';
   ic.textContent = '⟳';
   const opp = filtered().length;
+  // Countdown alerts J-7 J-3 J-1
+  await checkCountdownAlerts(allEvs());
   toast((S.lang==='fr'?'Scan terminé — ':'Scan done — ')+opp+(S.lang==='fr'?' opportunités':' opportunities')+(tgSent>0?` · 📱 ${tgSent} alertes`:''),'✓');
   render();
 }
@@ -1895,3 +1940,4 @@ window.renderMap        = renderMap;
 window.fetchLiveFX      = fetchLiveFX;
 window.toggleTheme      = toggleTheme;
 window.buildMobileCards = buildMobileCards;
+window.checkCountdownAlerts = checkCountdownAlerts;
