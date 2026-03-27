@@ -21,7 +21,27 @@ const ALERTS = [
   {icon:'📉',type:'red',name:'F1 Abu Dhabi',desc:'−8% · Léger recul · surveiller',time:'5h'},
 ];
 
-const FX = CONFIG.FX;
+const FX = {...CONFIG.FX}; // Mis à jour live
+
+async function fetchLiveFX() {
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/EUR');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.result !== 'success') return;
+    const r = data.rates;
+    FX.EUR_USD = r.USD ? Math.round(r.USD * 1000) / 1000 : FX.EUR_USD;
+    FX.EUR_GBP = r.GBP ? Math.round(r.GBP * 1000) / 1000 : FX.EUR_GBP;
+    FX.USD_EUR = r.USD ? Math.round((1/r.USD) * 1000) / 1000 : FX.USD_EUR;
+    FX.USD_GBP = (r.GBP && r.USD) ? Math.round((r.GBP/r.USD) * 1000) / 1000 : FX.USD_GBP;
+    FX.GBP_EUR = r.GBP ? Math.round((1/r.GBP) * 1000) / 1000 : FX.GBP_EUR;
+    FX.GBP_USD = (r.USD && r.GBP) ? Math.round((r.USD/r.GBP) * 1000) / 1000 : FX.GBP_USD;
+    FX._updated = new Date().toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+    console.log('[FX] Taux mis à jour:', FX);
+    // Refresh ROI view if active
+    if (S.view === 'roi') render();
+  } catch(e) { console.warn('[FX] API indisponible, taux statiques utilisés'); }
+}
 
 /* ══════════════════════════════════════════════
    STATE
@@ -43,7 +63,7 @@ const S = {
   tgToken: localStorage.getItem('tr-tg-token') || '',
   tgChatId: localStorage.getItem('tr-tg-chatid') || '',
   apiUrl: localStorage.getItem('tr-api-url') || CONFIG.BACKEND_URL || '',
-  compSearch: '', nextId: 300,
+  compSearch: '', nextId: 300, _discoveredEvents: [],
   sheetEvents: [], loadingSheet: false, sheetLoaded: false, sheetError: '',
   notifStatus: localStorage.getItem('tr-notif') || 'unknown',
   liveData: {}, charts: {},
@@ -157,6 +177,7 @@ async function loadSheet() {
     S.loadingSheet = false;
     updateDataSourceInfo('ok', events.length);
     if (S.apiUrl) await enrichWithLivePrices();
+    savePriceSnapshot(events);
     toast(`✅ ${events.length} events chargés`, '📊');
     render();
   } catch (err) {
@@ -745,6 +766,9 @@ function render() {
   else if (S.view === 'roi') renderROI(c);
   else if (S.view === 'compare') renderCompare(c);
   else if (S.view === 'watchlist') renderWatchlist(c);
+  else if (S.view === 'history') renderPriceHistory(c);
+  else if (S.view === 'discover') renderDiscover(c);
+  else if (S.view === 'map') renderMap(c);
   else if (S.view === 'settings') renderSettings(c);
 }
 
@@ -1437,6 +1461,7 @@ function init() {
   if (seuilVal) seuilVal.textContent = '+' + S.seuil + '%';
 
   if (S.notifStatus === 'granted') registerServiceWorker();
+  fetchLiveFX(); // Taux de change live au démarrage
   renderMarkets();
   applyLang();
   render();
@@ -1447,6 +1472,314 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
+}
+
+/* ══════════════════════════════════════════════
+   PRICE HISTORY — Historique des prix
+══════════════════════════════════════════════ */
+const PRICE_HISTORY_KEY = 'tr-price-history';
+
+function getPriceHistory() {
+  try { return JSON.parse(localStorage.getItem(PRICE_HISTORY_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function savePriceSnapshot(events) {
+  const history = getPriceHistory();
+  const today = new Date().toISOString().split('T')[0];
+  events.forEach(ev => {
+    if (!ev.name || !ev.resale) return;
+    const key = ev.name.slice(0, 30);
+    if (!history[key]) history[key] = { name: ev.name, flag: ev.flag||'🎫', snapshots: [] };
+    // Evite les doublons du même jour
+    const last = history[key].snapshots.slice(-1)[0];
+    if (last && last.date === today) {
+      last.resale = ev.resale;
+      last.marge  = ev.marge;
+    } else {
+      history[key].snapshots.push({ date: today, resale: ev.resale, marge: ev.marge });
+    }
+    // Garde max 30 jours
+    if (history[key].snapshots.length > 30) {
+      history[key].snapshots = history[key].snapshots.slice(-30);
+    }
+  });
+  localStorage.setItem(PRICE_HISTORY_KEY, JSON.stringify(history));
+}
+
+function renderPriceHistory(c) {
+  const fr = S.lang === 'fr';
+  const history = getPriceHistory();
+  const keys = Object.keys(history).filter(k => history[k].snapshots.length >= 2);
+
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">📈 ${fr?'Évolution des prix':'Price history'}</span>
+        <span class="card-meta">${keys.length} ${fr?'events suivis':'events tracked'}</span>
+      </div>
+      ${keys.length === 0 ? `
+        <div class="empty">
+          <div class="empty-icon">📊</div>
+          <div class="empty-txt">${fr?'Lance plusieurs scans pour voir l'évolution':'Run multiple scans to see price evolution'}</div>
+        </div>` : `
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:20px">
+          ${keys.slice(0,6).map(k => {
+            const ev = history[k];
+            const snaps = ev.snapshots;
+            const first = snaps[0].resale;
+            const last  = snaps[snaps.length-1].resale;
+            const trend = last > first ? '↗' : last < first ? '↘' : '→';
+            const trendCol = last > first ? 'var(--green)' : last < first ? 'var(--red)' : 'var(--t3)';
+            const pct = first > 0 ? Math.round(((last-first)/first)*100) : 0;
+            const canvasId = 'ph-' + k.replace(/[^a-z0-9]/gi,'');
+            return `
+            <div style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r12);padding:14px 16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <div>
+                  <div style="font-family:var(--font-head);font-size:13px;font-weight:700">${ev.flag} ${ev.name}</div>
+                  <div style="font-family:var(--font-mono);font-size:9px;color:var(--t3);margin-top:2px">${snaps.length} ${fr?'points de données':'data points'}</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-size:20px;font-weight:800;font-family:var(--font-head);color:${trendCol}">${trend} ${pct >= 0 ? '+' : ''}${pct}%</div>
+                  <div style="font-size:9px;color:var(--t3);font-family:var(--font-mono)">${first}€ → ${last}€</div>
+                </div>
+              </div>
+              <div style="position:relative;height:80px"><canvas id="${canvasId}"></canvas></div>
+            </div>`;
+          }).join('')}
+        </div>`}
+    </div>`;
+
+  // Draw mini charts
+  setTimeout(() => {
+    keys.slice(0,6).forEach(k => {
+      const ev = history[k];
+      const snaps = ev.snapshots;
+      const canvasId = 'ph-' + k.replace(/[^a-z0-9]/gi,'');
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const first = snaps[0].resale;
+      const last  = snaps[snaps.length-1].resale;
+      const color = last >= first ? '#2DD4A0' : '#FF5E5E';
+      if (S.charts[canvasId]) S.charts[canvasId].destroy();
+      S.charts[canvasId] = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: snaps.map(s => s.date.slice(5)),
+          datasets: [{
+            data: snaps.map(s => s.resale),
+            borderColor: color,
+            backgroundColor: color + '15',
+            borderWidth: 2,
+            pointRadius: snaps.length < 10 ? 4 : 2,
+            pointBackgroundColor: color,
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: 'rgba(240,237,232,0.04)' }, ticks: { color: '#605A52', font: { size: 9, family: 'IBM Plex Mono' } } },
+            y: { grid: { color: 'rgba(240,237,232,0.04)' }, ticks: { color: '#605A52', font: { size: 9, family: 'IBM Plex Mono' }, callback: v => v + '€' } }
+          }
+        }
+      });
+    });
+  }, 100);
+}
+
+/* ══════════════════════════════════════════════
+   AUTO DISCOVER — Recherche automatique events
+══════════════════════════════════════════════ */
+async function autoDiscoverEvents() {
+  toast(S.lang==='fr'?'🔍 Recherche de nouveaux events...':'🔍 Searching new events...', '🔍');
+  
+  // Recherche via SeatGeek API publique
+  const queries = ['f1 2026', 'concert paris 2026', 'ufc 2026', 'champions league 2026', 'festival 2026'];
+  const discovered = [];
+  
+  for (const q of queries) {
+    try {
+      const url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(q)}&per_page=3&sort=score.desc`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const events = data.events || [];
+      events.forEach(ev => {
+        const avgPrice = ev.stats?.average_price || 0;
+        const lowestPrice = ev.stats?.lowest_price || 0;
+        if (!avgPrice || !lowestPrice) return;
+        const estimatedFace = Math.round(lowestPrice * 0.6);
+        const net = avgPrice * 0.85;
+        const marge = estimatedFace > 0 ? Math.round(((net - estimatedFace) / estimatedFace) * 100) : 0;
+        if (marge < 30) return;
+        discovered.push({
+          name: ev.title?.slice(0, 50) || 'Event inconnu',
+          date: ev.datetime_local?.split('T')[0] || '',
+          platform: 'SeatGeek',
+          face: estimatedFace,
+          resale: Math.round(avgPrice),
+          marge,
+          score: Math.min(Math.round(ev.score * 10) / 10, 9.9) || 7.5,
+          flag: '🌍', cat: 'sport', h: 'mid', country: 'US',
+          _discovered: true,
+          _url: ev.url || '',
+        });
+      });
+    } catch(e) { console.warn('[Discover]', q, e.message); }
+  }
+
+  if (!discovered.length) {
+    toast(S.lang==='fr'?'Aucun nouveau event trouvé':'No new events found', 'ℹ');
+    return;
+  }
+
+  // Déduplique avec events existants
+  const existing = allEvs().map(e => e.name.toLowerCase().slice(0,20));
+  const newEvs = discovered.filter(e => !existing.some(ex => e.name.toLowerCase().includes(ex.slice(0,10))));
+
+  if (!newEvs.length) {
+    toast(S.lang==='fr'?'Tous les events déjà connus':'All events already known', 'ℹ');
+    return;
+  }
+
+  // Affiche les résultats
+  S._discoveredEvents = newEvs;
+  nav('discover', document.getElementById('nav-discover'));
+  toast(`🔍 ${newEvs.length} ${S.lang==='fr'?'nouveaux events trouvés !':'new events found!'}`, '🔍');
+}
+
+function renderDiscover(c) {
+  const fr = S.lang === 'fr';
+  const evs = S._discoveredEvents || [];
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">🔍 ${fr?'Events découverts':'Discovered events'}</span>
+        <span class="card-meta">${evs.length} ${fr?'nouveaux':'new'}</span>
+      </div>
+      ${evs.length === 0 ? `
+        <div class="empty">
+          <div class="empty-icon">🔍</div>
+          <div class="empty-txt">${fr?'Lance une recherche depuis le bouton ci-dessous':'Run a search from the button below'}</div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" onclick="autoDiscoverEvents()">🔍 ${fr?'Rechercher':'Search'}</button>
+        </div>` : `
+        ${evs.map(e => `
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--b3)">
+            <div style="flex:1">
+              <div style="font-size:12.5px;font-weight:600;font-family:var(--font-head)">${e.flag} ${e.name}</div>
+              <div style="font-size:9.5px;color:var(--t3);font-family:var(--font-mono);margin-top:2px">${e.date} · ${e.platform} · face estimée: ${e.face}€</div>
+            </div>
+            <span class="mb ${e.marge>=100?'mb-hot':e.marge>=50?'mb-mid':'mb-low'}">+${e.marge}%</span>
+            <button onclick="importDiscoveredEvent(${evs.indexOf(e)})"
+              style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
+              + ${fr?'Importer':'Import'}
+            </button>
+          </div>`).join('')}
+        <div class="form-actions">
+          <button class="btn-ghost" onclick="autoDiscoverEvents()">🔄 ${fr?'Relancer':'Refresh'}</button>
+        </div>`}
+    </div>`;
+}
+
+function importDiscoveredEvent(idx) {
+  const ev = (S._discoveredEvents || [])[idx];
+  if (!ev) return;
+  S.customEvents.push({
+    id: S.nextId++,
+    name: ev.name, sub: ev._url || '', date: ev.date,
+    flag: ev.flag || '🌍', cat: ev.cat || 'sport',
+    h: ev.h || 'mid', platform: ev.platform,
+    face: ev.face, resale: ev.resale, marge: ev.marge,
+    prevResale: ev.resale, score: ev.score || 7.5,
+    qty: 1, notes: 'Auto-découvert via SeatGeek',
+    starred: false, custom: true, live: true, country: ev.country || 'US',
+  });
+  saveState();
+  toast(S.lang==='fr'?`"${ev.name.slice(0,25)}" importé !`:`"${ev.name.slice(0,25)}" imported!`, '✓');
+}
+
+/* ══════════════════════════════════════════════
+   MAP — Carte interactive des events
+══════════════════════════════════════════════ */
+const COUNTRY_COORDS = {
+  FR:{lat:48.85,lng:2.35}, UK:{lat:51.5,lng:-0.12}, US:{lat:40.71,lng:-74.0},
+  ES:{lat:40.41,lng:-3.7}, JP:{lat:35.68,lng:139.69}, MC:{lat:43.73,lng:7.42},
+  UAE:{lat:24.45,lng:54.37}, HU:{lat:47.49,lng:19.04}, DE:{lat:52.52,lng:13.4},
+  IT:{lat:41.9,lng:12.5}, AU:{lat:-33.87,lng:151.2}, BR:{lat:-23.55,lng:-46.63},
+};
+
+let leafletMap = null;
+
+function renderMap(c) {
+  const fr = S.lang === 'fr';
+  const evs = allEvs().filter(e => e.marge >= S.seuil);
+  
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🗺️ ${fr?'Carte des opportunités':'Opportunity map'}</span>
+        <span class="card-meta">${evs.length} ${fr?'events':'events'} > +${S.seuil}%</span>
+      </div>
+      <div id="leaflet-map" style="height:420px;border-radius:0 0 var(--r16) var(--r16);overflow:hidden"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">${fr?'Répartition géographique':'Geographic breakdown'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 18px">
+        ${Object.entries(
+          evs.reduce((acc, e) => { acc[e.country] = (acc[e.country]||0)+1; return acc; }, {})
+        ).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([country, count]) => `
+          <div style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:10px;text-align:center">
+            <div style="font-size:20px">${evs.find(e=>e.country===country)?.flag||'🌍'}</div>
+            <div style="font-family:var(--font-mono);font-size:9px;color:var(--t3);margin-top:4px">${country}</div>
+            <div style="font-family:var(--font-head);font-size:18px;font-weight:800;color:var(--gold2)">${count}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  // Init Leaflet map
+  setTimeout(() => {
+    if (leafletMap) { leafletMap.remove(); leafletMap = null; }
+    const mapEl = document.getElementById('leaflet-map');
+    if (!mapEl || !window.L) return;
+    
+    leafletMap = L.map('leaflet-map', { zoomControl: true, scrollWheelZoom: false }).setView([30, 10], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      maxZoom: 18
+    }).addTo(leafletMap);
+
+    evs.forEach(ev => {
+      const coords = COUNTRY_COORDS[ev.country];
+      if (!coords) return;
+      // Jitter pour éviter les superpositions
+      const jLat = coords.lat + (Math.random() - 0.5) * 2;
+      const jLng = coords.lng + (Math.random() - 0.5) * 2;
+      const color = ev.marge >= 100 ? '#2DD4A0' : ev.marge >= 50 ? '#D4A843' : '#5BA4F5';
+      const size  = ev.marge >= 100 ? 14 : ev.marge >= 50 ? 11 : 8;
+      const icon  = L.divIcon({
+        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.3);box-shadow:0 0 8px ${color}"></div>`,
+        iconSize: [size, size], className: ''
+      });
+      L.marker([jLat, jLng], { icon })
+        .addTo(leafletMap)
+        .bindPopup(`
+          <div style="font-family:monospace;font-size:11px;min-width:160px">
+            <div style="font-weight:700;margin-bottom:4px">${ev.flag||'🎫'} ${ev.name}</div>
+            <div style="color:#666">${ev.date||''}</div>
+            <div style="color:${color};font-weight:700;margin-top:4px">+${ev.marge}%</div>
+            <div style="color:#888">${ev.face}€ → ${ev.resale}€</div>
+            <div style="color:#888;margin-top:2px">${ev.platform}</div>
+          </div>`);
+    });
+  }, 200);
 }
 
 /* ── Expose functions globally for onclick handlers ── */
@@ -1480,3 +1813,8 @@ window.requestNotifications = requestNotifications;
 window.disableNotifications = disableNotifications;
 window.updateMobileNav  = updateMobileNav;
 window.renderCompare    = renderCompare;
+window.renderPriceHistory = renderPriceHistory;
+window.autoDiscoverEvents = autoDiscoverEvents;
+window.importDiscoveredEvent = importDiscoveredEvent;
+window.renderMap        = renderMap;
+window.fetchLiveFX      = fetchLiveFX;
