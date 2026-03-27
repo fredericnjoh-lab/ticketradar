@@ -56,6 +56,45 @@
       --r4: 4px; --r8: 8px; --r12: 12px; --r16: 16px; --r24: 24px;
     }
 
+    /* ══ LIGHT THEME ══ */
+    body.light {
+      --bg0: #F5F0E8;
+      --bg1: #EDE8DF;
+      --bg2: #E5DFD4;
+      --bg3: #DDD7CB;
+      --bg4: #D5CEC0;
+      --bg5: #C8C0B0;
+      --bg6: #B8B0A0;
+
+      --gold:    #B8860B;
+      --gold2:   #9A6F0A;
+      --gold3:   #7A5808;
+      --goldbg:  rgba(184,134,11,.1);
+      --goldbdr: rgba(184,134,11,.25);
+
+      --green:   #1A8A5A;
+      --greenbg: rgba(26,138,90,.1);
+      --greenbdr:rgba(26,138,90,.25);
+      --red:     #C0392B;
+      --redbg:   rgba(192,57,43,.08);
+      --redbdr:  rgba(192,57,43,.2);
+      --blue:    #2563EB;
+      --bluebg:  rgba(37,99,235,.08);
+      --bluebdr: rgba(37,99,235,.2);
+      --purple:  #6D28D9;
+      --purplebg:rgba(109,40,217,.08);
+
+      --t1: #1A1510;
+      --t2: #4A4035;
+      --t3: #7A6E62;
+      --t4: #A89E92;
+
+      --b1: rgba(184,134,11,.15);
+      --b2: rgba(184,134,11,.3);
+      --b3: rgba(26,21,16,.08);
+      --b4: rgba(26,21,16,.15);
+    }
+
     html, body { height: 100%; }
     body {
       background: var(--bg0);
@@ -71,6 +110,18 @@
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: var(--bg1); }
     ::-webkit-scrollbar-thumb { background: var(--bg5); border-radius: 2px; }
+
+    /* Light mode text overrides */
+    body.light .logo-mark { color: #F5F0E8; }
+    body.light .scan-btn { color: #F5F0E8; }
+    body.light .btn-primary { color: #F5F0E8; }
+    body.light .btn-save { color: #F5F0E8; }
+    body.light .wl-add-btn { color: #F5F0E8; }
+    body.light .npill.active { background: var(--bg4); }
+    body.light input[type="range"] { accent-color: var(--gold); }
+    body.light .kanban-card { box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    body.light .card { box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    body.light .toast { box-shadow: 0 4px 20px rgba(0,0,0,.15); }
 
     /* ══ TOPBAR ══ */
     .topbar {
@@ -178,6 +229,20 @@
       border-radius: var(--r8);
       overflow: hidden;
     }
+    .theme-toggle {
+      width: 32px; height: 32px;
+      border-radius: var(--r8);
+      background: var(--bg2);
+      border: 1px solid var(--b3);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: all .2s;
+      flex-shrink: 0;
+    }
+    .theme-toggle:hover { border-color: var(--gold); background: var(--goldbg); }
     .lang-btn {
       padding: 4px 9px;
       font-size: 10px;

@@ -63,7 +63,7 @@ const S = {
   tgToken: localStorage.getItem('tr-tg-token') || '',
   tgChatId: localStorage.getItem('tr-tg-chatid') || '',
   apiUrl: localStorage.getItem('tr-api-url') || CONFIG.BACKEND_URL || '',
-  compSearch: '', nextId: 300, _discoveredEvents: [],
+  compSearch: '', nextId: 300, _discoveredEvents: [], theme: localStorage.getItem('tr-theme') || 'dark',
   sheetEvents: [], loadingSheet: false, sheetLoaded: false, sheetError: '',
   notifStatus: localStorage.getItem('tr-notif') || 'unknown',
   liveData: {}, charts: {},
@@ -1441,6 +1441,24 @@ function copyEventSummary(evId) {
   navigator.clipboard.writeText(txt).then(() => toast(S.lang==='fr'?'Copié !':'Copied!', '📋'));
 }
 
+function toggleTheme() {
+  S.theme = S.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('tr-theme', S.theme);
+  applyTheme();
+  toast(S.theme === 'light' ? '☀️ Mode clair' : '🌙 Mode sombre', S.theme === 'light' ? '☀️' : '🌙');
+}
+
+function applyTheme() {
+  if (S.theme === 'light') {
+    document.body.classList.add('light');
+  } else {
+    document.body.classList.remove('light');
+  }
+  // Update toggle button icon
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = S.theme === 'light' ? '🌙' : '☀️';
+}
+
 async function runScan() {
   const btn=document.getElementById('scan-btn'),lbl=document.getElementById('scan-lbl'),ic=document.getElementById('scan-ic');
   btn.classList.add('loading');
@@ -1472,6 +1490,7 @@ function init() {
 
   if (S.notifStatus === 'granted') registerServiceWorker();
   fetchLiveFX();
+  applyTheme(); // Apply saved theme
   const _starred = JSON.parse(localStorage.getItem('tr-starred') || '[]');
   [...FALLBACK_EVENTS, ...S.sheetEvents, ...S.customEvents].forEach(e => {
     if (_starred.includes(e.id)) e.starred = true;
@@ -1832,3 +1851,4 @@ window.autoDiscoverEvents = autoDiscoverEvents;
 window.importDiscoveredEvent = importDiscoveredEvent;
 window.renderMap        = renderMap;
 window.fetchLiveFX      = fetchLiveFX;
+window.toggleTheme      = toggleTheme;
