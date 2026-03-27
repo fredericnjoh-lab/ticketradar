@@ -465,8 +465,9 @@
     .score-bar { width: 40px; height: 3px; background: var(--bg5); border-radius: 2px; }
     .score-fill { height: 100%; border-radius: 2px; }
     .score-n { font-family: var(--font-mono); font-size: 11px; min-width: 22px; }
-    .star-btn { background: none; border: none; cursor: pointer; font-size: 12px; opacity: .2; transition: opacity .15s; padding: 2px 5px; }
-    .star-btn:hover, .star-btn.on { opacity: 1; }
+    .star-btn { background: none; border: none; cursor: pointer; font-size: 14px; opacity: .5; transition: all .15s; padding: 2px 5px; color: var(--t2); }
+    .star-btn:hover { opacity: 1; color: var(--gold2); }
+    .star-btn.on { opacity: 1; color: var(--gold); }
     .plat-tag {
       font-size: 9.5px;
       font-family: var(--font-mono);
