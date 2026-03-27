@@ -428,6 +428,44 @@ function nav(v, el) {
 /* ══════════════════════════════════════════════
    TABLE
 ══════════════════════════════════════════════ */
+function buildMobileCards(evs) {
+  const fr = S.lang === 'fr';
+  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
+  return `<div class="mobile-cards-container" style="display:none">
+    ${evs.map(e => {
+      const drop = hasDrop(e);
+      const dpct = dropPct(e);
+      const margeClass = e.marge >= 100 ? 'mec-hot' : e.marge >= 50 ? 'mec-mid' : 'mec-low';
+      const margeCol = e.marge >= 100 ? 'var(--green)' : e.marge >= 50 ? 'var(--gold2)' : 'var(--blue)';
+      return `
+      <div class="mobile-ev-card ${margeClass}">
+        <div class="mec-head">
+          <div>
+            <div class="mec-name">${e.flag||'🎫'} ${e.name}</div>
+            <div class="mec-sub">${e.sub||''} · ${e.date||''}</div>
+          </div>
+          <div class="mec-marge" style="color:${margeCol}">+${e.marge}%</div>
+        </div>
+        <div class="mec-row">
+          <span class="mec-pill">Face: ${e.face}€</span>
+          <span class="mec-pill">Revente: ${e.resale}€</span>
+          ${e.live ? '<span class="mec-pill" style="color:var(--green);border-color:var(--greenbdr)">📡 Live</span>' : ''}
+          ${drop && dpct <= -5 ? `<span class="mec-pill" style="color:var(--red);border-color:var(--redbdr)">📉 ${dpct}%</span>` : ''}
+        </div>
+        <div class="mec-row">
+          <span class="mec-pill">${e.platform||'—'}</span>
+          <span class="cat-tag ct-${e.cat}">${e.cat.toUpperCase()}</span>
+        </div>
+        <div class="mec-actions">
+          <button class="mec-btn mec-buy" onclick="openPlatform(${e.id})">🛒 ${fr?'Acheter':'Buy'}</button>
+          <button class="mec-btn mec-kanban" onclick="addToKanban(${e.id},'watch')">🗂</button>
+          <button class="mec-btn mec-star ${e.starred?'on':''}" onclick="toggleStar(${e.id})">${e.starred?'★':'☆'}</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function buildTable(evs) {
   const fr = S.lang === 'fr';
   if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
@@ -491,6 +529,8 @@ function buildTable(evs) {
    KANBAN
 ══════════════════════════════════════════════ */
 function addToKanban(evId, col) {
+  // Haptic feedback on mobile
+  if (navigator.vibrate) navigator.vibrate(10);
   const ev = allEvs().find(e => e.id === evId);
   if (!ev) return;
   // Check not already in kanban
@@ -866,6 +906,7 @@ function renderDash(c) {
         <span class="card-act" onclick="nav('events',document.getElementById('nav-events'))">${fr?'voir tout →':'all →'}</span>
       </div>
       ${buildTable(all.slice().sort((a,b)=>b.marge-a.marge).slice(0,5))}
+      ${buildMobileCards(all.slice().sort((a,b)=>b.marge-a.marge).slice(0,5))}
     </div>`;
 
   setTimeout(() => {
@@ -929,6 +970,7 @@ function renderEvents(c) {
       </div>
     </div>
     ${buildTable(evs)}
+    ${buildMobileCards(evs)}
   </div>`;
 }
 
@@ -1852,3 +1894,4 @@ window.importDiscoveredEvent = importDiscoveredEvent;
 window.renderMap        = renderMap;
 window.fetchLiveFX      = fetchLiveFX;
 window.toggleTheme      = toggleTheme;
+window.buildMobileCards = buildMobileCards;
