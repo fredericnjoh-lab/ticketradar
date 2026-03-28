@@ -181,7 +181,9 @@ async function loadSheet() {
           country: String(row.country||'FR'), flag: String(row.flag||'🎫'),
           cat: String(row.cat||'concert'), platform: String(row.platform||''),
           face, resale, marge, score,
-          prevResale: resale, // Initialize prevResale same as resale
+          prevResale: resale,
+          presale_date: String(row.presale_date || row.presaledate || ''),
+          presale_code: String(row.presale_code || row.presalecode || '').toUpperCase(),
           starred: false, custom: false, live: false,
         };
       }).filter(e => e.name && e.face > 0);
@@ -228,6 +230,8 @@ function parseSheetCSV(text) {
       country:row.country||'FR', flag:row.flag||'🎫',
       cat:row.cat||row.category||'concert', platform:row.platform||'',
       face, resale, marge, score, prevResale:resale,
+      presale_date: row.presale_date || row.presaledate || '',
+      presale_code: (row.presale_code || row.presalecode || '').toUpperCase(),
       starred:false, custom:false, live:false,
     };
   }).filter(e => e.name && e.face > 0);
