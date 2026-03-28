@@ -1596,6 +1596,14 @@ function skipAuth() {
   toast(S.lang==='fr'?'Mode local — données non sauvegardées':'Local mode — data not saved', 'ℹ');
 }
 
+function togglePwd() {
+  const inp = document.getElementById('auth-password');
+  const eye = document.getElementById('pwd-eye');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  if (eye) eye.textContent = inp.type === 'password' ? '👁' : '🙈';
+}
+
 function switchAuthTab(mode) {
   _authMode = mode;
   const signin = document.getElementById('tab-signin');
@@ -1642,8 +1650,13 @@ async function submitAuth() {
     } else {
       await sbSignIn(email, password);
       hideAuthModal();
-      toast('✓ Connecté !', '👤');
       updateUserBtn();
+      toast(S.lang==='fr'?'✓ Bienvenue !':'✓ Welcome!', '👤');
+      // Reset form
+      const emailEl = document.getElementById('auth-email');
+      const pwdEl   = document.getElementById('auth-password');
+      if (emailEl) emailEl.value = '';
+      if (pwdEl)   pwdEl.value   = '';
     }
   } catch(err) {
     const msg = err.message?.includes('Invalid login') ? 'Email ou mot de passe incorrect'
@@ -1660,14 +1673,20 @@ function updateUserBtn() {
   if (!btn) return;
   const user = window.currentUser;
   if (user) {
-    btn.textContent = user.email?.slice(0,1).toUpperCase() || '👤';
-    btn.style.background = 'var(--goldbg)';
-    btn.style.color = 'var(--gold2)';
+    const letter = user.email?.slice(0,1).toUpperCase() || '?';
+    btn.textContent = letter;
+    btn.style.background = 'var(--gold)';
+    btn.style.color = 'var(--bg0)';
     btn.style.fontFamily = 'var(--font-head)';
-    btn.style.fontWeight = '700';
+    btn.style.fontWeight = '800';
+    btn.style.fontSize = '13px';
+    btn.title = user.email;
   } else {
     btn.textContent = '👤';
-    btn.style.color = '';
+    btn.style.background = 'var(--goldbg)';
+    btn.style.color = 'var(--gold2)';
+    btn.style.fontWeight = '';
+    btn.title = 'Se connecter';
   }
 }
 
@@ -1677,7 +1696,16 @@ function toggleUserMenu() {
   const menu = document.getElementById('user-menu');
   if (!menu) return;
   const emailEl = document.getElementById('user-email');
-  if (emailEl) emailEl.textContent = user.email;
+  if (emailEl) {
+    const kanbanCount = Object.values(S.kanban).flat().length;
+    const wlCount = S.wl.length;
+    emailEl.innerHTML = `
+      <div style="font-weight:600;color:var(--t1);margin-bottom:4px">${user.email}</div>
+      <div style="color:var(--t4);font-size:9px">
+        🗂 ${kanbanCount} Kanban · ★ ${wlCount} Watchlist
+      </div>
+      <div style="color:var(--green);font-size:9px;margin-top:2px">☁️ ${S.lang==='fr'?'Synchronisé':'Synced'}</div>`;
+  }
   menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
 }
 
@@ -2085,3 +2113,4 @@ window.switchAuthTab  = switchAuthTab;
 window.submitAuth     = submitAuth;
 window.toggleUserMenu = toggleUserMenu;
 window.closeUserMenu  = closeUserMenu;
+window.togglePwd      = togglePwd;
