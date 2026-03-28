@@ -190,7 +190,7 @@
 <!-- ══ USER MENU ══ -->
 <div id="user-menu" style="display:none;position:fixed;top:60px;right:16px;z-index:500;background:var(--bg3);border:1px solid var(--b2);border-radius:var(--r12);padding:12px;min-width:200px;box-shadow:0 8px 32px rgba(0,0,0,.4)">
   <div id="user-email" style="font-family:var(--font-mono);font-size:10px;color:var(--t3);margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--b3)"></div>
-  <button onclick="sbSignOut().then(()=>{window.currentUser=null;closeUserMenu();toast('Déconnecté','👋');render()})" style="width:100%;background:var(--redbg);border:1px solid var(--redbdr);border-radius:var(--r8);padding:8px;color:var(--red);font-size:12px;cursor:pointer;font-family:var(--font-body)">Se déconnecter</button>
+  <button onclick="doSignOut()" style="width:100%;background:var(--redbg);border:1px solid var(--redbdr);border-radius:var(--r8);padding:10px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:all .15s" onmouseover="this.style.background='var(--red)';this.style.color='#fff'" onmouseout="this.style.background='var(--redbg)';this.style.color='var(--red)'">👋 Se déconnecter</button>
 </div>
 
 <!-- ══ SCRIPTS ══ -->

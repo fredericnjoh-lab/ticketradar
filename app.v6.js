@@ -1714,6 +1714,32 @@ function closeUserMenu() {
   if (menu) menu.style.display = 'none';
 }
 
+async function doSignOut() {
+  try {
+    closeUserMenu();
+    await sbSignOut();
+    window.currentUser = null;
+    updateUserBtn();
+    // Reset local state
+    S.kanban = { watch: [], bought: [], selling: [], sold: [] };
+    S.wl = [];
+    S.customEvents = [];
+    saveState();
+    toast(S.lang==='fr'?'À bientôt !':'See you!', '👋');
+    render();
+    // Show auth modal after short delay
+    setTimeout(showAuthModal, 800);
+  } catch(err) {
+    console.error('[Auth] Signout error:', err);
+    // Force signout even if error
+    window.currentUser = null;
+    updateUserBtn();
+    toast(S.lang==='fr'?'Déconnecté':'Signed out', '👋');
+    render();
+    setTimeout(showAuthModal, 800);
+  }
+}
+
 // Close menu on outside click
 document.addEventListener('click', e => {
   const menu = document.getElementById('user-menu');
@@ -2114,3 +2140,4 @@ window.submitAuth     = submitAuth;
 window.toggleUserMenu = toggleUserMenu;
 window.closeUserMenu  = closeUserMenu;
 window.togglePwd      = togglePwd;
+window.doSignOut      = doSignOut;
