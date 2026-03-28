@@ -825,6 +825,7 @@ function render() {
   else if (S.view === 'compare') renderCompare(c);
   else if (S.view === 'watchlist') renderWatchlist(c);
   else if (S.view === 'history') renderPriceHistory(c);
+  else if (S.view === 'ai') renderAIPredictor(c);
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'settings') renderSettings(c);
@@ -2093,6 +2094,179 @@ function renderMap(c) {
   }, 200);
 }
 
+/* ══════════════════════════════════════════════
+   🤖 AI PRICE PREDICTOR
+   Régression linéaire sur l'historique des prix
+   Signal : ACHETER / ATTENDRE / VENDRE
+══════════════════════════════════════════════ */
+
+function linearRegression(points) {
+  // points = [{x: dayIndex, y: price}, ...]
+  const n = points.length;
+  if (n < 2) return { slope: 0, intercept: points[0]?.y || 0, r2: 0 };
+  const sumX  = points.reduce((s, p) => s + p.x, 0);
+  const sumY  = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumX2 = points.reduce((s, p) => s + p.x * p.x, 0);
+  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  // R² score
+  const yMean = sumY / n;
+  const ssTot = points.reduce((s, p) => s + Math.pow(p.y - yMean, 2), 0);
+  const ssRes = points.reduce((s, p) => s + Math.pow(p.y - (slope * p.x + intercept), 2), 0);
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return { slope, intercept, r2 };
+}
+
+function predictPrice(snapshots, daysAhead = 7) {
+  if (!snapshots || snapshots.length < 2) return null;
+  const points = snapshots.map((s, i) => ({ x: i, y: parseFloat(s.resale) }));
+  const { slope, intercept, r2 } = linearRegression(points);
+  const nextX = points.length + daysAhead - 1;
+  const predicted = Math.round(slope * nextX + intercept);
+  const current   = points[points.length - 1].y;
+  const pctChange = current > 0 ? Math.round(((predicted - current) / current) * 100) : 0;
+  // Trend over last 3 points
+  const recent = points.slice(-3);
+  const recentSlope = recent.length >= 2
+    ? (recent[recent.length-1].y - recent[0].y) / recent.length
+    : slope;
+  return { slope, predicted, current, pctChange, r2, recentSlope };
+}
+
+function getSignal(ev, snapshots) {
+  if (!snapshots || snapshots.length < 2) {
+    return { signal: 'DONNÉES INSUFFISANTES', color: 'var(--t3)', icon: '⏳', advice: 'Lance plusieurs scans pour accumuler des données', confidence: 0 };
+  }
+  const pred = predictPrice(snapshots, 7);
+  if (!pred) return null;
+  const { pctChange, r2, recentSlope, slope } = pred;
+  const confidence = Math.round(Math.min(Math.max(r2 * 100, 10), 95));
+  // Days until event
+  const daysLeft = (() => {
+    const months = {jan:0,fév:1,feb:1,mar:2,avr:3,apr:3,mai:4,may:4,jun:5,juin:5,jul:6,juil:6,aug:7,aoû:7,sep:8,oct:9,nov:10,déc:11,dec:11};
+    const match = (ev.date||'').match(/(\d+)(?:-\d+)?\s+([a-zéû]+)\s+(\d{4})/i);
+    if (match) {
+      const month = months[match[2].toLowerCase().slice(0,3)];
+      if (month !== undefined) {
+        const d = new Date(parseInt(match[3]), month, parseInt(match[1]));
+        const today = new Date(); today.setHours(0,0,0,0);
+        return Math.round((d - today) / (1000*60*60*24));
+      }
+    }
+    return null;
+  })();
+
+  // Signal logic
+  if (daysLeft !== null && daysLeft <= 3) {
+    return { signal: 'VENDRE MAINTENANT', color: 'var(--red)', icon: '🚨', advice: `Event dans ${daysLeft}j — c'est maintenant ou jamais !`, confidence, predicted: pred.predicted, pctChange };
+  }
+  if (pctChange >= 8 && r2 > 0.4) {
+    return { signal: 'ACHETER MAINTENANT', color: 'var(--green)', icon: '🟢', advice: `Prix en hausse +${pctChange}% prévu sur 7j — bon moment d'acheter`, confidence, predicted: pred.predicted, pctChange };
+  }
+  if (pctChange <= -5 && r2 > 0.4) {
+    if (recentSlope < 0) {
+      return { signal: 'ATTENDRE', color: 'var(--blue)', icon: '⏳', advice: `Prix en baisse ${pctChange}% — attends le bottom dans ~${Math.abs(Math.round(pred.current/slope))}j`, confidence, predicted: pred.predicted, pctChange };
+    }
+  }
+  if (daysLeft !== null && daysLeft <= 14 && pctChange >= 3) {
+    return { signal: 'VENDRE BIENTÔT', color: 'var(--gold2)', icon: '🟡', advice: `Peak proche — pense à vendre avant J-7`, confidence, predicted: pred.predicted, pctChange };
+  }
+  return { signal: 'SURVEILLER', color: 'var(--t2)', icon: '👁', advice: `Tendance neutre — accumule des données`, confidence, predicted: pred.predicted, pctChange };
+}
+
+function renderAIPredictor(c) {
+  const fr = S.lang === 'fr';
+  const history = getPriceHistory();
+  const all = allEvs();
+  // Match history with events
+  const predictions = [];
+  all.forEach(ev => {
+    const key = Object.keys(history).find(k => k.slice(0,20) === ev.name.slice(0,20));
+    const snapshots = key ? history[key].snapshots : null;
+    const signal = getSignal(ev, snapshots);
+    if (signal) {
+      predictions.push({ ev, snapshots: snapshots || [], signal });
+    }
+  });
+  // Sort: urgent signals first
+  const signalOrder = {'VENDRE MAINTENANT':0,'VENDRE BIENTÔT':1,'ACHETER MAINTENANT':2,'ATTENDRE':3,'SURVEILLER':4,'DONNÉES INSUFFISANTES':5};
+  predictions.sort((a,b) => (signalOrder[a.signal.signal]||9) - (signalOrder[b.signal.signal]||9));
+
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🤖 ${fr?'AI Price Predictor':'AI Price Predictor'}</span>
+        <span class="card-meta">${predictions.length} ${fr?'events analysés':'events analyzed'} · Régression linéaire</span>
+      </div>
+      <div style="padding:12px 18px;background:var(--goldbg);border-bottom:1px solid var(--goldbdr);font-size:11px;color:var(--gold2);font-family:var(--font-mono)">
+        ⚠️ ${fr ? "Predictions basees sur l'historique — plus tu scannes, plus c'est precis" : "Predictions based on local history — more scans = more accuracy"}
+      </div>
+      ${predictions.length === 0 ? `
+        <div class="empty">
+          <div class="empty-icon">🤖</div>
+          <div class="empty-txt">${fr?'Lance plusieurs scans pour générer des prédictions':'Run multiple scans to generate predictions'}</div>
+        </div>` :
+        predictions.map(({ ev, snapshots, signal }) => {
+          const hasData = snapshots.length >= 2;
+          const pred = hasData ? predictPrice(snapshots, 7) : null;
+          return `
+          <div style="padding:14px 18px;border-bottom:1px solid var(--b3);display:flex;gap:14px;align-items:flex-start">
+            <div style="width:38px;height:38px;border-radius:var(--r8);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:${signal.color}15;border:1px solid ${signal.color}40">
+              ${signal.icon}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+                <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${ev.flag||'🎫'} ${ev.name}</span>
+                <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;background:${signal.color}15;color:${signal.color};border:1px solid ${signal.color}40;white-space:nowrap">${signal.signal}</span>
+              </div>
+              <div style="font-size:11px;color:var(--t3);margin-bottom:6px;font-family:var(--font-mono)">${signal.advice}</div>
+              ${hasData && pred ? `
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--t3)">Actuel: <strong style="color:var(--t1)">${pred.current}€</strong></span>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--t3)">Prévu J+7: <strong style="color:${pred.pctChange>=0?'var(--green)':'var(--red)'}">${pred.predicted}€ (${pred.pctChange>=0?'+':''}${pred.pctChange}%)</strong></span>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--t3)">Fiabilité: <strong style="color:var(--gold2)">${signal.confidence}%</strong></span>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--t3)">${snapshots.length} point${snapshots.length>1?'s':''}</span>
+              </div>
+              ${hasData ? `
+              <div style="margin-top:8px;height:3px;background:var(--bg5);border-radius:2px;overflow:hidden">
+                <div style="height:100%;border-radius:2px;background:${signal.color};width:${signal.confidence}%;transition:width .4s"></div>
+              </div>` : ''}` : `
+              <div style="font-size:10px;color:var(--t4);font-family:var(--font-mono)">Lance au moins 2 scans pour obtenir une prédiction</div>`}
+            </div>
+            <div style="flex-shrink:0;text-align:right">
+              <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:${ev.marge>=100?'var(--green)':ev.marge>=50?'var(--gold2)':'var(--t2)'}">+${ev.marge}%</div>
+              <div style="font-size:9px;color:var(--t4);font-family:var(--font-mono)">marge actuelle</div>
+            </div>
+          </div>`;
+        }).join('')}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">📊 ${fr?'Résumé des signaux':'Signal summary'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 18px">
+        ${[
+          {s:'ACHETER MAINTENANT', icon:'🟢', col:'var(--green)'},
+          {s:'VENDRE MAINTENANT',  icon:'🚨', col:'var(--red)'},
+          {s:'VENDRE BIENTÔT',     icon:'🟡', col:'var(--gold2)'},
+          {s:'ATTENDRE',           icon:'⏳', col:'var(--blue)'},
+          {s:'SURVEILLER',         icon:'👁', col:'var(--t2)'},
+          {s:'DONNÉES INSUFFISANTES', icon:'⏳', col:'var(--t4)'},
+        ].map(({s, icon, col}) => {
+          const count = predictions.filter(p => p.signal.signal === s).length;
+          return `
+          <div style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:10px 12px;text-align:center">
+            <div style="font-size:16px">${icon}</div>
+            <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:${col}">${count}</div>
+            <div style="font-size:8px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${s}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
 /* ── Expose functions globally for onclick handlers ── */
 window.nav              = nav;
 window.navBack          = navBack;
@@ -2132,6 +2306,7 @@ window.fetchLiveFX      = fetchLiveFX;
 window.toggleTheme      = toggleTheme;
 window.buildMobileCards = buildMobileCards;
 window.checkCountdownAlerts = checkCountdownAlerts;
+window.renderAIPredictor = renderAIPredictor;
 window.showAuthModal  = showAuthModal;
 window.hideAuthModal  = hideAuthModal;
 window.skipAuth       = skipAuth;
