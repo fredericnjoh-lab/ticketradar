@@ -826,6 +826,7 @@ function render() {
   else if (S.view === 'watchlist') renderWatchlist(c);
   else if (S.view === 'history') renderPriceHistory(c);
   else if (S.view === 'ai') renderAIPredictor(c);
+  else if (S.view === 'presale') renderPresaleTracker(c);
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'settings') renderSettings(c);
@@ -1569,6 +1570,9 @@ async function runScan() {
   const opp = filtered().length;
   // Countdown alerts J-7 J-3 J-1
   await checkCountdownAlerts(allEvs());
+  // Presale alerts
+  const psAlerts = await sendPresaleAlerts(allEvs());
+  if (psAlerts > 0) toast(`🔑 ${psAlerts} alerte(s) presale envoyée(s) !`, '🔑');
   toast((S.lang==='fr'?'Scan terminé — ':'Scan done — ')+opp+(S.lang==='fr'?' opportunités':' opportunities')+(tgSent>0?` · 📱 ${tgSent} alertes`:''),'✓');
   render();
 }
@@ -2267,6 +2271,208 @@ function renderAIPredictor(c) {
     </div>`;
 }
 
+/* ══════════════════════════════════════════════
+   🔑 PRESALE TRACKER
+   Countdown + alertes Telegram avant presale
+══════════════════════════════════════════════ */
+
+const PRESALE_SOURCES = {
+  'AMEX':       { label: 'Amex Presale',         icon: '💳', color: '#2DD4A0', tip: 'Carte American Express requise' },
+  'SPOTIFY':    { label: 'Spotify Fan Presale',   icon: '🎵', color: '#1DB954', tip: "S'abonner à l'artiste sur Spotify" },
+  'APPLE':      { label: 'Apple Music Presale',   icon: '🎵', color: '#FC3C44', tip: "Suivre l'artiste sur Apple Music" },
+  'VERIFIED':   { label: 'Verified Fan',          icon: '✅', color: '#5BA4F5', tip: 'Inscription Ticketmaster Verified Fan' },
+  'NEWSLETTER': { label: 'Newsletter artiste',    icon: '📧', color: '#A78BFA', tip: "S'inscrire sur le site officiel" },
+  'VENUE':      { label: 'Venue Presale',         icon: '🏟️', color: '#D4A843', tip: 'Abonné email de la salle' },
+  'FANCLUB':    { label: 'Fan Club',              icon: '⭐', color: '#FF5E5E', tip: 'Membre du fan club officiel' },
+};
+
+function getDaysUntilPresale(presaleDateStr) {
+  if (!presaleDateStr) return null;
+  const d = new Date(presaleDateStr);
+  if (isNaN(d)) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  return Math.round((d - today) / (1000*60*60*24));
+}
+
+function getPresaleStatus(ev) {
+  const days = getDaysUntilPresale(ev.presale_date || ev.presale);
+  if (days === null) return null;
+  if (days < 0)  return { status: 'TERMINÉE',   color: 'var(--t4)',    icon: '⏹️', days };
+  if (days === 0) return { status: "AUJOURD'HUI", color: 'var(--red)',  icon: '🚨', days };
+  if (days <= 1)  return { status: 'DEMAIN',      color: 'var(--red)',   icon: '🔴', days };
+  if (days <= 3)  return { status: `J-${days}`,   color: 'var(--gold2)', icon: '🟡', days };
+  if (days <= 7)  return { status: `J-${days}`,   color: 'var(--green)', icon: '🟢', days };
+  return           { status: `J-${days}`,          color: 'var(--t2)',    icon: '📅', days };
+}
+
+async function sendPresaleAlerts(events) {
+  if (!S.tgToken || !S.tgChatId) return 0;
+  let sent = 0;
+  const ALERT_DAYS = [3, 1, 0];
+
+  for (const ev of events) {
+    const ps = getPresaleStatus(ev);
+    if (!ps || !ALERT_DAYS.includes(ps.days)) continue;
+
+    const source = PRESALE_SOURCES[ev.presale_code] || { label: ev.presale_code || 'Presale', icon: '🔑' };
+    const urgency = ps.days === 0 ? '🚨 MAINTENANT' : ps.days === 1 ? '⚡ DEMAIN' : `📅 Dans ${ps.days} jours`;
+
+    const msg =
+      `🔑 <b>TicketRadar — Presale ${urgency} !</b>
+
+` +
+      `${ev.flag||'🎫'} <b>${ev.name}</b>
+` +
+      `📅 Presale : <b>${ev.presale_date || ev.presale}</b>
+` +
+      `${source.icon} Code : <b>${source.label}</b>
+` +
+      `💡 ${source.tip || ''}
+` +
+      `💰 Marge estimée : <b>+${ev.marge}%</b>
+` +
+      `🎫 Face : ${ev.face}€ → Revente : ${ev.resale}€
+
+` +
+      (ps.days === 0
+        ? `⚡ <b>C'est maintenant — achète avant la vente générale !</b>
+`
+        : ps.days <= 1
+        ? `⏰ Prépare-toi — la presale ouvre demain !
+`
+        : `📌 Mets une alarme pour ne pas rater l'ouverture.
+`) +
+      `
+👉 <a href="https://fredericnjoh-lab.github.io/ticketradar/">Ouvrir TicketRadar</a>`;
+
+    try {
+      const r = await fetch('https://api.telegram.org/bot' + S.tgToken + '/sendMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: S.tgChatId, text: msg, parse_mode: 'HTML' })
+      });
+      if ((await r.json()).ok) { sent++; await new Promise(r => setTimeout(r, 300)); }
+    } catch(e) {}
+  }
+  return sent;
+}
+
+function renderPresaleTracker(c) {
+  const fr = S.lang === 'fr';
+  const evs = allEvs();
+
+  // Events with presale info
+  const withPresale = evs.filter(e => e.presale_date || e.presale).map(e => ({
+    ...e,
+    _ps: getPresaleStatus(e)
+  })).sort((a, b) => {
+    const da = a._ps?.days ?? 999;
+    const db = b._ps?.days ?? 999;
+    return da - db;
+  });
+
+  // Upcoming presales (next 30 days)
+  const upcoming = withPresale.filter(e => e._ps && e._ps.days >= 0 && e._ps.days <= 30);
+  const past     = withPresale.filter(e => e._ps && e._ps.days < 0);
+  const noDate   = evs.filter(e => !e.presale_date && !e.presale);
+
+  c.innerHTML = `
+    <!-- Header stats -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+      ${[
+        { lbl: fr?'PRESALES À VENIR':'UPCOMING', val: upcoming.length, col: 'var(--green)', icon: '🔑' },
+        { lbl: fr?'DANS LES 3 JOURS':'IN 3 DAYS', val: upcoming.filter(e=>e._ps.days<=3).length, col: 'var(--red)', icon: '🚨' },
+        { lbl: fr?'CETTE SEMAINE':'THIS WEEK', val: upcoming.filter(e=>e._ps.days<=7).length, col: 'var(--gold2)', icon: '⚡' },
+        { lbl: fr?'SANS DATE':'NO DATE', val: noDate.length, col: 'var(--t3)', icon: '❓' },
+      ].map(k => `
+        <div style="background:var(--bg2);border:1px solid var(--b3);border-radius:var(--r12);padding:14px;position:relative;overflow:hidden">
+          <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${k.col},transparent)"></div>
+          <div style="font-family:var(--font-mono);font-size:8.5px;color:var(--t3);letter-spacing:.1em;margin-bottom:8px">${k.lbl}</div>
+          <div style="font-family:var(--font-head);font-size:28px;font-weight:800;color:${k.col}">${k.val}</div>
+          <div style="font-size:16px;position:absolute;top:12px;right:14px;opacity:.3">${k.icon}</div>
+        </div>`).join('')}
+    </div>
+
+    <!-- Presale sources legend -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🔑 ${fr?'Sources de presale':'Presale sources'}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 18px">
+        ${Object.entries(PRESALE_SOURCES).map(([k, v]) => `
+          <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--b3);border-radius:20px;padding:4px 12px;cursor:default" title="${v.tip}">
+            <span>${v.icon}</span>
+            <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--t2)">${k}</span>
+          </div>`).join('')}
+      </div>
+      <div style="padding:8px 18px 12px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+        ${fr?'Ajoute une colonne "presale_date" (YYYY-MM-DD) et "presale_code" dans ton Google Sheet':'Add "presale_date" (YYYY-MM-DD) and "presale_code" columns to your Google Sheet'}
+      </div>
+    </div>
+
+    <!-- Upcoming presales -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">⏰ ${fr?'Presales à venir':'Upcoming presales'}</span>
+        <span class="card-meta">${upcoming.length} ${fr?'events':'events'}</span>
+      </div>
+      ${upcoming.length === 0 ? `
+        <div class="empty">
+          <div class="empty-icon">🔑</div>
+          <div class="empty-txt">${fr?"Ajoute une colonne 'presale_date' dans ton Sheet":"Add a 'presale_date' column to your Sheet"}</div>
+        </div>` :
+        upcoming.map(ev => {
+          const ps = ev._ps;
+          const src = PRESALE_SOURCES[ev.presale_code] || { icon: '🔑', label: ev.presale_code || '—', tip: '' };
+          return `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b3)">
+            <div style="width:42px;height:42px;border-radius:var(--r8);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:${ps.color}15;border:1px solid ${ps.color}40">
+              ${ps.icon}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+                <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${ev.flag||'🎫'} ${ev.name}</span>
+                <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ps.color}15;color:${ps.color};border:1px solid ${ps.color}40">${ps.status}</span>
+              </div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
+                <span>📅 ${ev.presale_date || ev.presale}</span>
+                <span>${src.icon} ${src.label}</span>
+                <span>💰 +${ev.marge}%</span>
+                <span>${ev.face}€ → ${ev.resale}€</span>
+              </div>
+              ${src.tip ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">💡 ${src.tip}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+              <button onclick="openPlatform(${ev.id})"
+                style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
+                🛒 Acheter
+              </button>
+            </div>
+          </div>`;
+        }).join('')}
+    </div>
+
+    <!-- Events sans date presale -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">❓ ${fr?'Sans date presale':'No presale date'}</span>
+        <span class="card-meta">${noDate.length} ${fr?'events à surveiller':'events to watch'}</span>
+      </div>
+      <div style="padding:10px 18px;font-size:11px;color:var(--t3);font-family:var(--font-mono);border-bottom:1px solid var(--b3)">
+        ${fr?'Ajoute presale_date + presale_code dans ton Sheet pour ces events':'Add presale_date + presale_code to your Sheet for these events'}
+      </div>
+      ${noDate.slice(0,8).map(ev => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--b3)">
+          <span style="font-size:16px">${ev.flag||'🎫'}</span>
+          <div style="flex:1">
+            <div style="font-family:var(--font-head);font-size:12.5px;font-weight:600">${ev.name}</div>
+            <div style="font-family:var(--font-mono);font-size:9.5px;color:var(--t3)">${ev.date||'—'} · +${ev.marge}%</div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:9px;color:var(--t4);background:var(--bg3);padding:2px 8px;border-radius:4px">Pas de presale_date</span>
+        </div>`).join('')}
+    </div>`;
+}
+
 /* ── Expose functions globally for onclick handlers ── */
 window.nav              = nav;
 window.navBack          = navBack;
@@ -2306,7 +2512,9 @@ window.fetchLiveFX      = fetchLiveFX;
 window.toggleTheme      = toggleTheme;
 window.buildMobileCards = buildMobileCards;
 window.checkCountdownAlerts = checkCountdownAlerts;
-window.renderAIPredictor = renderAIPredictor;
+window.renderAIPredictor    = renderAIPredictor;
+window.renderPresaleTracker = renderPresaleTracker;
+window.sendPresaleAlerts    = sendPresaleAlerts;
 window.showAuthModal  = showAuthModal;
 window.hideAuthModal  = hideAuthModal;
 window.skipAuth       = skipAuth;
