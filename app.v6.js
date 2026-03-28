@@ -102,6 +102,14 @@ function saveState() {
   localStorage.setItem('tr-tg-token', S.tgToken);
   localStorage.setItem('tr-tg-chatid', S.tgChatId);
   localStorage.setItem('tr-api-url', S.apiUrl);
+  // Sync profile to Supabase
+  const user = window.currentUser;
+  if (user && typeof sbUpdateProfile === 'function') {
+    sbUpdateProfile(user.id, {
+      seuil: S.seuil, lang: S.lang, theme: S.theme,
+      sheet_url: S.sheetUrl, tg_chat_id: S.tgChatId,
+    }).catch(e => console.warn('[Supabase] Profile sync:', e.message));
+  }
 }
 
 function filtered() {
@@ -1568,6 +1576,125 @@ async function runScan() {
    INIT
 ══════════════════════════════════════════════ */
 /* ── Init ── */
+/* ══════════════════════════════════════════════
+   AUTH UI
+══════════════════════════════════════════════ */
+let _authMode = 'signin';
+
+function showAuthModal() {
+  const el = document.getElementById('auth-overlay');
+  if (el) el.style.display = 'flex';
+}
+
+function hideAuthModal() {
+  const el = document.getElementById('auth-overlay');
+  if (el) el.style.display = 'none';
+}
+
+function skipAuth() {
+  hideAuthModal();
+  toast(S.lang==='fr'?'Mode local — données non sauvegardées':'Local mode — data not saved', 'ℹ');
+}
+
+function switchAuthTab(mode) {
+  _authMode = mode;
+  const signin = document.getElementById('tab-signin');
+  const signup = document.getElementById('tab-signup');
+  const btn    = document.getElementById('auth-submit-btn');
+  const sub    = document.getElementById('auth-subtitle');
+  if (mode === 'signin') {
+    signin.style.background = 'var(--bg5)'; signin.style.color = 'var(--gold2)';
+    signup.style.background = 'transparent'; signup.style.color = 'var(--t3)';
+    if (btn) btn.textContent = 'Se connecter';
+    if (sub) sub.textContent = 'Connecte-toi pour retrouver tes données';
+  } else {
+    signup.style.background = 'var(--bg5)'; signup.style.color = 'var(--gold2)';
+    signin.style.background = 'transparent'; signin.style.color = 'var(--t3)';
+    if (btn) btn.textContent = "S'inscrire";
+    if (sub) sub.textContent = 'Crée ton compte TicketRadar';
+  }
+  const errEl = document.getElementById('auth-error');
+  if (errEl) errEl.style.display = 'none';
+}
+
+async function submitAuth() {
+  const email    = document.getElementById('auth-email')?.value.trim();
+  const password = document.getElementById('auth-password')?.value;
+  const errEl    = document.getElementById('auth-error');
+  const btn      = document.getElementById('auth-submit-btn');
+  const successEl = document.getElementById('auth-success');
+
+  if (!email || !password) {
+    if (errEl) { errEl.textContent = 'Email et mot de passe requis'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+  if (btn) { btn.textContent = '⟳ Chargement...'; btn.disabled = true; }
+
+  try {
+    if (_authMode === 'signup') {
+      await sbSignUp(email, password);
+      if (successEl) {
+        successEl.textContent = '✓ Compte créé ! Vérifie ton email pour confirmer.';
+        successEl.style.display = 'block';
+      }
+      if (btn) btn.style.display = 'none';
+    } else {
+      await sbSignIn(email, password);
+      hideAuthModal();
+      toast('✓ Connecté !', '👤');
+      updateUserBtn();
+    }
+  } catch(err) {
+    const msg = err.message?.includes('Invalid login') ? 'Email ou mot de passe incorrect'
+              : err.message?.includes('already registered') ? 'Email déjà utilisé'
+              : err.message || 'Erreur de connexion';
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = _authMode === 'signup' ? "S'inscrire" : 'Se connecter'; }
+  }
+}
+
+function updateUserBtn() {
+  const btn = document.getElementById('user-btn');
+  if (!btn) return;
+  const user = window.currentUser;
+  if (user) {
+    btn.textContent = user.email?.slice(0,1).toUpperCase() || '👤';
+    btn.style.background = 'var(--goldbg)';
+    btn.style.color = 'var(--gold2)';
+    btn.style.fontFamily = 'var(--font-head)';
+    btn.style.fontWeight = '700';
+  } else {
+    btn.textContent = '👤';
+    btn.style.color = '';
+  }
+}
+
+function toggleUserMenu() {
+  const user = window.currentUser;
+  if (!user) { showAuthModal(); return; }
+  const menu = document.getElementById('user-menu');
+  if (!menu) return;
+  const emailEl = document.getElementById('user-email');
+  if (emailEl) emailEl.textContent = user.email;
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+function closeUserMenu() {
+  const menu = document.getElementById('user-menu');
+  if (menu) menu.style.display = 'none';
+}
+
+// Close menu on outside click
+document.addEventListener('click', e => {
+  const menu = document.getElementById('user-menu');
+  const btn  = document.getElementById('user-btn');
+  if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
 function init() {
   // Init DOM elements
   const seuilEl = document.getElementById('seuil');
@@ -1578,6 +1705,16 @@ function init() {
   if (S.notifStatus === 'granted') registerServiceWorker();
   fetchLiveFX();
   applyTheme(); // Apply saved theme
+  // Check if user is logged in
+  sbGetUser().then(user => {
+    if (user) {
+      window.currentUser = user;
+      updateUserBtn();
+    } else {
+      // Show auth modal after 1 second
+      setTimeout(showAuthModal, 1000);
+    }
+  }).catch(() => {}); // Supabase might not be loaded yet
   const _starred = JSON.parse(localStorage.getItem('tr-starred') || '[]');
   [...FALLBACK_EVENTS, ...S.sheetEvents, ...S.customEvents].forEach(e => {
     if (_starred.includes(e.id)) e.starred = true;
@@ -1941,3 +2078,10 @@ window.fetchLiveFX      = fetchLiveFX;
 window.toggleTheme      = toggleTheme;
 window.buildMobileCards = buildMobileCards;
 window.checkCountdownAlerts = checkCountdownAlerts;
+window.showAuthModal  = showAuthModal;
+window.hideAuthModal  = hideAuthModal;
+window.skipAuth       = skipAuth;
+window.switchAuthTab  = switchAuthTab;
+window.submitAuth     = submitAuth;
+window.toggleUserMenu = toggleUserMenu;
+window.closeUserMenu  = closeUserMenu;
