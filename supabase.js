@@ -275,12 +275,18 @@ async function loadUserData(userId) {
     ]);
 
     // Sync Supabase data into app state S
+    // Only overwrite local values if Supabase has something AND local is empty
     if (profile) {
-      if (profile.seuil)     S.seuil    = profile.seuil;
-      if (profile.lang)      S.lang     = profile.lang;
-      if (profile.theme)     S.theme    = profile.theme;
-      if (profile.sheet_url) S.sheetUrl = profile.sheet_url;
-      if (profile.tg_chat_id) S.tgChatId = profile.tg_chat_id;
+      if (profile.seuil)      S.seuil    = profile.seuil;
+      if (profile.lang)       S.lang     = profile.lang;
+      if (profile.theme)      S.theme    = profile.theme;
+      // Only set sheetUrl from Supabase if local is empty
+      if (profile.sheet_url && !S.sheetUrl) S.sheetUrl = profile.sheet_url;
+      // If local has sheetUrl but Supabase doesn't, save it to Supabase
+      if (S.sheetUrl && !profile.sheet_url) {
+        sbUpdateProfile(userId, { sheet_url: S.sheetUrl }).catch(() => {});
+      }
+      if (profile.tg_chat_id && !S.tgChatId) S.tgChatId = profile.tg_chat_id;
     }
     if (watchlist.length)    S.wl           = watchlist;
     if (Object.values(kanban).flat().length) S.kanban = kanban;
