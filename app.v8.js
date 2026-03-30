@@ -86,8 +86,8 @@ const dropPct = e => e.prevResale ? Math.round(((e.resale - e.prevResale) / e.pr
 
 function toast(msg, icon='✓') {
   const el = document.getElementById('toast');
-  document.getElementById('t-icon').textContent = icon;
-  document.getElementById('t-msg').textContent = msg;
+  if (!el) return;
+  el.innerHTML = '<span>' + (icon||'✓') + '</span> ' + msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 3000);
 }
@@ -396,11 +396,7 @@ function applyLang() {
   if(document.getElementById('mkt-list')) renderMarkets();
 }
 
-function renderMarkets() {
-  if (!document.getElementById('mkt-list')) return;
-  const el = document.getElementById('mkt-list');
-  if (!el) return; // sidebar markets removed in v6
-}
+function renderMarkets() { const el = document.getElementById('mkt-list'); if (!el) return; }
 
 function toggleMkt(i) { MARKETS[i].on = !MARKETS[i].on; if(document.getElementById('mkt-list')) renderMarkets(); }
 
@@ -431,14 +427,8 @@ function navBack() { nav('dashboard', document.getElementById('nav-dashboard'));
 
 function nav(v, el) {
   S.view = v;
-  // Sidebar
-  document.querySelectorAll('.sb-item').forEach(n => n.classList.remove('on'));
-  const sbEl = document.getElementById('nav-' + v);
-  if (sbEl) sbEl.classList.add('on');
-  // Mobile pills
-  document.querySelectorAll('.npill').forEach(n => n.classList.remove('on'));
-  const mobEl = document.getElementById('mob-' + v);
-  if (mobEl) mobEl.classList.add('on');
+  document.querySelectorAll('.npill, .sb-item').forEach(n => n.classList.remove('active', 'on'));
+  if (el) { el.classList.add('active'); el.classList.add('on'); }
   render();
 }
 
@@ -462,6 +452,10 @@ function updateTopbarKpis() {
 /* ══════════════════════════════════════════════
    TABLE
 ══════════════════════════════════════════════ */
+  // Update sidebar user info
+  const emailSb = document.getElementById('user-email-sb');
+  if (emailSb && window.currentUser) emailSb.textContent = (window.currentUser.email||'').split('@')[0];
+
 function buildMobileCards(evs) {
   const fr = S.lang === 'fr';
   if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
@@ -832,11 +826,9 @@ function render() {
   // Status bar
   const dot = document.getElementById('status-dot');
   const lbl = document.getElementById('status-lbl');
-  if (dot && lbl) {
-    if (S.loadingSheet) { dot.style.background='var(--gold)'; lbl.textContent='chargement...'; }
-    else if (S.sheetLoaded) { dot.style.background='var(--teal)'; lbl.textContent='sheet ✓'; }
-    else { dot.style.background='var(--t4)'; lbl.textContent='local'; }
-  }
+  if (S.loadingSheet) { if(dot) dot.style.background='var(--gold)'; if(lbl) lbl.textContent='chargement...'; }
+  else if (S.sheetLoaded) { if(dot) dot.style.background='var(--teal)'; if(lbl) lbl.textContent='sheet ✓'; }
+  else { if(dot) dot.style.background='var(--t4)'; if(lbl) lbl.textContent='local'; }
 
   // TG sidebar
   const tgEl = document.getElementById('tg-sidebar');
@@ -845,7 +837,7 @@ function render() {
     : '<span style="color:var(--t3)">Non configuré</span>';
 
   const c = document.getElementById('content');
-  if (S.view === 'dash' || S.view === 'dashboard') renderDash(c);
+  if (S.view === 'dashboard' || S.view === 'dash') renderDash(c);
   else if (S.view === 'events') renderEvents(c);
   else if (S.view === 'kanban') renderKanban(c);
   else if (S.view === 'drops') renderDrops(c);
@@ -858,8 +850,7 @@ function render() {
   else if (S.view === 'presale') renderPresaleTracker(c);
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
-  else if (S.view === 'settings' || S.view === 'config') renderSettings(c);
-  else if (S.view === 'wl') renderWatchlist(c);
+  else if (S.view === 'settings') renderSettings(c);
 }
 
 /* ══════════════════════════════════════════════
@@ -1103,12 +1094,12 @@ function renderDash(c) {
               <div class="ev6-dome-lbl">Marge</div>
               <div class="ev6-roi-val">+${ev.marge}%</div>
             </div>
-            <svg class="ev6-gauge" viewBox="0 0 36 36">
+            <svg width="36" height="36" viewBox="0 0 36 36" style="position:absolute;bottom:6px;right:6px;display:block;width:36px!important;height:36px!important;flex-shrink:0">
               <circle cx="18" cy="18" r="13" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="2.5"/>
               <circle cx="18" cy="18" r="13" fill="none" stroke="${sc}" stroke-width="2.5"
                 stroke-dasharray="${gc} ${circ - gc}" stroke-dashoffset="${Math.round(circ * 0.25)}"
                 transform="rotate(-90 18 18)"/>
-              <text x="18" y="21" text-anchor="middle" font-size="6" fill="rgba(255,255,255,.8)" font-family="monospace">ROI</text>
+               <text x="18" y="21" text-anchor="middle" font-size="7" fill="rgba(255,255,255,.8)" font-family="monospace" font-weight="700">ROI</text>
             </svg>
           </div>
           <div class="ev6-body">
@@ -1203,98 +1194,31 @@ async function runDashAI() {
 
 function renderEvents(c) {
   const fr = S.lang === 'fr';
-  const all = allEvs();
-  const cats = ['all','f1','concert','mma','sport','custom'];
-  const catLabels = {all:fr?'Tous':'All',f1:'F1',concert:'Concerts',mma:'MMA',sport:'Sport',custom:fr?'Perso':'Custom'};
-  const active = S.evFilter || 'all';
-  const search = S.evSearch || '';
-  const sort = S.evSort || 'marge';
-  let filtered = active === 'all' ? all : all.filter(e => e.cat === active);
-  if (search) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
-  filtered = filtered.slice().sort((a,b) => sort==='score' ? b.score-a.score : sort==='date' ? (a.date||'').localeCompare(b.date||'') : b.marge-a.marge);
-  const avg = filtered.length ? Math.round(filtered.reduce((a,e)=>a+e.marge,0)/filtered.length) : 0;
-
-  const statsHtml = [
-    {lbl:'MARGE MAX', val:'+' + (filtered[0]?.marge||0) + '%', col:'var(--teal)'},
-    {lbl:'MARGE MOY.', val:'+' + avg + '%', col:'var(--gold2)'},
-    {lbl:'>100%', val:String(filtered.filter(e=>e.marge>=100).length), col:'var(--purple)'},
-    {lbl:'TOTAL', val:String(filtered.length), col:'var(--t1)'},
-  ].map(k =>
-    '<div class="kpi-card" style="padding:12px 14px">' +
-      '<div class="kpi-lbl">' + k.lbl + '</div>' +
-      '<div class="kpi-val" style="font-size:20px;color:' + k.col + '">' + k.val + '</div>' +
-    '</div>'
-  ).join('');
-
-  const cardsHtml = filtered.map(ev => {
-    const ps = getPresaleStatus(ev);
-    const psBadge = ps && ps.days >= 0 && ps.days <= 7 ? '<span class="kpi-badge kb-red">🔑 J-' + ps.days + '</span>' : '';
-    const liveBadge = ev.live ? '<span class="kpi-badge kb-teal">● LIVE</span>' : '';
-    const mc = ev.marge>=100 ? 'var(--teal)' : ev.marge>=50 ? 'var(--gold2)' : 'var(--t2)';
-    const tc = ev.marge>=100 ? 'var(--teal)' : ev.marge>=50 ? 'var(--gold)' : 'var(--b1)';
-    return (
-      '<div class="ev-card">' +
-        '<div style="height:3px;background:' + tc + '"></div>' +
-        '<div style="padding:14px 16px">' +
-          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
-            '<div style="flex:1;min-width:0">' +
-              '<div class="ev-name" style="font-size:14px">' + (ev.flag||'🎫') + ' ' + ev.name + '</div>' +
-              '<div class="ev-meta">' + (ev.sub||ev.platform||'') + ' · ' + (ev.date||'—') + '</div>' +
-            '</div>' +
-            '<div style="text-align:right;margin-left:8px;flex-shrink:0">' +
-              '<div style="font-size:22px;font-weight:800;color:' + mc + ';font-family:var(--font-mono)">+' + ev.marge + '%</div>' +
-              '<div style="font-size:8px;color:var(--t4);font-family:var(--font-mono)">marge</div>' +
-            '</div>' +
-          '</div>' +
-          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">' +
-            '<span class="cat-tag ct-' + (ev.cat||'concert') + '">' + (ev.cat||'concert') + '</span>' +
-            psBadge + liveBadge +
-          '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">' +
-            '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px">' +
-              '<div style="font-size:8px;color:var(--t4);font-family:var(--font-mono);margin-bottom:3px">FACE</div>' +
-              '<div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--t2)">' + ev.face + '€</div>' +
-            '</div>' +
-            '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px">' +
-              '<div style="font-size:8px;color:var(--t4);font-family:var(--font-mono);margin-bottom:3px">REVENTE</div>' +
-              '<div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--teal)">' + ev.resale + '€</div>' +
-            '</div>' +
-          '</div>' +
-          '<div style="display:flex;gap:6px">' +
-            '<button class="btn-primary" style="flex:1;padding:8px;font-size:11px" onclick="openPlatform(' + ev.id + ')">🛒 Acheter</button>' +
-            '<button class="btn-ghost" style="flex:1;padding:8px;font-size:11px" onclick="addToKanban(' + ev.id + ')">📋 Kanban</button>' +
-            '<button class="btn-ghost" style="width:36px;padding:8px;font-size:14px;color:' + (ev.starred?'var(--gold)':'var(--t3)') + '" onclick="toggleStar(' + ev.id + ',this)">' + (ev.starred?'★':'☆') + '</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>'
-    );
-  }).join('');
-
-  const catBtns = cats.map(cat =>
-    '<button class="fchip ' + (active===cat?'on':'') + '" onclick="S.evFilter=&quot;' + cat + '&quot;;render()">' + catLabels[cat] + '</button>'
-  ).join('');
-
-  c.innerHTML =
-    '<div class="section-top" style="margin-bottom:14px">' +
-      '<div><div class="section-title">' + (fr?'Événements':'Events') + '</div><div class="section-meta">' + filtered.length + ' / ' + all.length + '</div></div>' +
-      '<button class="btn-primary" onclick="nav(&quot;add&quot;,document.getElementById(&quot;nav-add&quot;))" style="font-size:11px;padding:7px 16px">+ Ajouter</button>' +
-    '</div>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">' +
-      catBtns +
-      '<select onchange="S.evSort=this.value;render()" style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:5px 10px;color:var(--t2);font-size:10.5px;outline:none;font-family:var(--font-mono)">' +
-        '<option value="marge"' + (sort==='marge'?' selected':'') + '>Marge ↓</option>' +
-        '<option value="score"' + (sort==='score'?' selected':'') + '>Score ↓</option>' +
-        '<option value="date"' + (sort==='date'?' selected':'') + '>Date</option>' +
-      '</select>' +
-      '<input placeholder="Rechercher..." value="' + search + '" oninput="S.evSearch=this.value;render()" style="margin-left:auto;background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:6px 12px;color:var(--t1);font-size:12px;outline:none;width:150px">' +
-    '</div>' +
-    '<div class="kpi-grid" style="margin-bottom:14px">' + statsHtml + '</div>' +
-    (filtered.length === 0 ?
-      '<div class="empty"><div class="empty-icon">🎫</div><div class="empty-txt">Aucun event trouvé</div></div>' :
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">' + cardsHtml + '</div>'
-    );
+  const evs = filtered();
+  const catL = {all:fr?'Tous':'All',f1:'F1 🏎️',concert:fr?'Concert':'Concert',mma:'MMA 🥊',sport:'Sport ⚽',custom:fr?'Custom':'Custom'};
+  const hL = {all:fr?'Tout horizon':'All',now:'🔴 Imminent',mid:'🟠 Court terme',far:'🟢 Déc. 2026'};
+  c.innerHTML = `<div class="card">
+    <div class="card-head">
+      <span class="card-title">${fr?'Événements':'Events'}</span>
+      <span class="card-meta">${evs.length} · seuil +${S.seuil}%${S.sheetLoaded?' · 📊 Sheet':' · 🗄 local'}</span>
+    </div>
+    <div class="toolbar">
+      ${Object.entries(catL).map(([k,v])=>`<button class="fchip ${S.cat===k?'on':''}" onclick="S.cat='${k}';render()">${v}</button>`).join('')}
+      <div class="vsep"></div>
+      ${Object.entries(hL).map(([k,v])=>`<button class="fchip ${S.horizon===k?'on':''}" onclick="S.horizon='${k}';render()">${v}</button>`).join('')}
+      <div class="search-box">
+        <span style="color:var(--t4)">⌕</span>
+        <input placeholder="${fr?'Rechercher...':'Search...'}" value="${S.search}" oninput="S.search=this.value;render()">
+      </div>
+    </div>
+    ${buildTable(evs)}
+    ${buildMobileCards(evs)}
+  </div>`;
 }
 
+/* ══════════════════════════════════════════════
+   ADD EVENT
+══════════════════════════════════════════════ */
 function renderAdd(c) {
   const fr = S.lang === 'fr';
   c.innerHTML = `
@@ -1842,17 +1766,16 @@ async function checkCountdownAlerts(events) {
 
 async function runScan() {
   const btn=document.getElementById('scan-btn'),lbl=document.getElementById('scan-lbl'),ic=document.getElementById('scan-ic');
-  if (!btn) return;
   btn.classList.add('loading');
-  if (lbl) lbl.textContent = S.lang==='fr'?'Scan...':'Scanning...';
+  lbl.textContent = S.lang==='fr'?'Scan...':'Scanning...';
   const frames=['⟳','↻','⟲']; let i=0;
   const anim = setInterval(()=>{ic.textContent=frames[i++%3];},300);
   await loadSheet();
   if (S.apiUrl) await enrichWithLivePrices();
   const tgSent = await sendTelegramDirect(allEvs(), S.seuil);
   clearInterval(anim);
-  if (btn) btn.classList.remove('loading');
-  if (lbl) lbl.textContent = S.lang==='fr'?'Scanner':'Scan now';
+  btn.classList.remove('loading');
+  lbl.textContent = S.lang==='fr'?'Scanner':'Scan now';
   ic.textContent = '⟳';
   const opp = filtered().length;
   // Countdown alerts J-7 J-3 J-1

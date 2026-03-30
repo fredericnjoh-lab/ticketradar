@@ -384,3 +384,25 @@ td { padding:11px 14px; vertical-align:middle; }
 
 .ev-card svg { max-width:100%; height:auto; display:block; }
 .ev-card-thumb svg { width:36px !important; height:36px !important; flex-shrink:0; }
+
+.ev6-card { background:var(--v6-bg2); border:1px solid var(--v6-b1); border-radius:12px; overflow:hidden; cursor:pointer; transition:all .15s; }
+.ev6-card:hover { border-color:var(--v6-b2); }
+.ev6-thumb { position:relative; height:90px; overflow:hidden; padding:9px 10px; display:flex; align-items:flex-start; justify-content:space-between; }
+.ev6-gauge { position:absolute !important; bottom:6px !important; right:6px !important; width:36px !important; height:36px !important; max-width:36px !important; max-height:36px !important; flex-shrink:0; display:block; }
+.ev6-avg-block { position:relative; z-index:1; }
+.ev6-avg-lbl { font-size:8px; color:rgba(255,255,255,.5); font-family:monospace; }
+.ev6-avg-val { font-size:22px; font-weight:800; color:#fff; line-height:1; }
+.ev6-pred-badge { position:absolute; top:8px; left:50%; transform:translateX(-50%); font-size:8px; font-family:monospace; font-weight:700; color:rgba(255,255,255,.6); background:rgba(0,0,0,.3); padding:2px 6px; border-radius:4px; white-space:nowrap; z-index:1; }
+.ev6-top-right { position:relative; z-index:1; text-align:right; }
+.ev6-dome-lbl { font-size:8px; color:rgba(255,255,255,.4); font-family:monospace; }
+.ev6-roi-val { font-size:13px; font-weight:700; font-family:monospace; color:#fff; }
+.ev6-body { padding:10px 12px; }
+.ev6-name { font-size:12.5px; font-weight:700; color:var(--v6-t1); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ev6-meta { font-size:9.5px; color:var(--v6-t2); font-family:monospace; margin-bottom:6px; }
+.ev6-badges { display:flex; gap:5px; flex-wrap:wrap; }
+.ev6-signal { font-size:9px; padding:2px 8px; border-radius:4px; font-weight:700; font-family:monospace; }
+.ev6-sentiment { font-size:9px; padding:2px 8px; border-radius:4px; background:var(--v6-bg4); color:var(--v6-t2); border:1px solid var(--v6-b1); font-family:monospace; }
+.ev-cards-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.trending-title { font-size:11px; font-weight:700; color:var(--v6-t2); font-family:monospace; letter-spacing:.1em; }
+.trending-sub { font-size:9px; color:var(--v6-t3); margin-top:2px; font-family:monospace; }
+.trending-all { font-size:11px; color:var(--v6-teal); cursor:pointer; }
