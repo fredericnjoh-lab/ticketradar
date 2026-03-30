@@ -430,14 +430,8 @@ function navBack() { nav('dashboard', document.getElementById('nav-dashboard'));
 
 function nav(v, el) {
   S.view = v;
-  // Sidebar
-  document.querySelectorAll('.sb-item').forEach(n => n.classList.remove('on'));
-  const sbEl = document.getElementById('nav-' + v);
-  if (sbEl) sbEl.classList.add('on');
-  // Mobile pills
-  document.querySelectorAll('.npill').forEach(n => n.classList.remove('on'));
-  const mobEl = document.getElementById('mob-' + v);
-  if (mobEl) mobEl.classList.add('on');
+  document.querySelectorAll('.npill').forEach(n => n.classList.remove('active'));
+  if (el) el.classList.add('active');
   render();
 }
 
