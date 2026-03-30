@@ -397,6 +397,7 @@ function applyLang() {
 }
 
 function renderMarkets() {
+  if (!document.getElementById('mkt-list')) return;
   const el = document.getElementById('mkt-list');
   if (!el) return; // sidebar markets removed in v6
 }
@@ -828,7 +829,7 @@ function renderDrops(c) {
 ══════════════════════════════════════════════ */
 function render() {
   updateTopbarKpis();
-  // Status bar (v6 - optional elements)
+  // Status bar
   const dot = document.getElementById('status-dot');
   const lbl = document.getElementById('status-lbl');
   if (dot && lbl) {
@@ -857,7 +858,8 @@ function render() {
   else if (S.view === 'presale') renderPresaleTracker(c);
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
-  else if (S.view === 'settings') renderSettings(c);
+  else if (S.view === 'settings' || S.view === 'config') renderSettings(c);
+  else if (S.view === 'wl') renderWatchlist(c);
 }
 
 /* ══════════════════════════════════════════════
@@ -1201,31 +1203,98 @@ async function runDashAI() {
 
 function renderEvents(c) {
   const fr = S.lang === 'fr';
-  const evs = filtered();
-  const catL = {all:fr?'Tous':'All',f1:'F1 🏎️',concert:fr?'Concert':'Concert',mma:'MMA 🥊',sport:'Sport ⚽',custom:fr?'Custom':'Custom'};
-  const hL = {all:fr?'Tout horizon':'All',now:'🔴 Imminent',mid:'🟠 Court terme',far:'🟢 Déc. 2026'};
-  c.innerHTML = `<div class="card">
-    <div class="card-head">
-      <span class="card-title">${fr?'Événements':'Events'}</span>
-      <span class="card-meta">${evs.length} · seuil +${S.seuil}%${S.sheetLoaded?' · 📊 Sheet':' · 🗄 local'}</span>
-    </div>
-    <div class="toolbar">
-      ${Object.entries(catL).map(([k,v])=>`<button class="fchip ${S.cat===k?'on':''}" onclick="S.cat='${k}';render()">${v}</button>`).join('')}
-      <div class="vsep"></div>
-      ${Object.entries(hL).map(([k,v])=>`<button class="fchip ${S.horizon===k?'on':''}" onclick="S.horizon='${k}';render()">${v}</button>`).join('')}
-      <div class="search-box">
-        <span style="color:var(--t4)">⌕</span>
-        <input placeholder="${fr?'Rechercher...':'Search...'}" value="${S.search}" oninput="S.search=this.value;render()">
-      </div>
-    </div>
-    ${buildTable(evs)}
-    ${buildMobileCards(evs)}
-  </div>`;
+  const all = allEvs();
+  const cats = ['all','f1','concert','mma','sport','custom'];
+  const catLabels = {all:fr?'Tous':'All',f1:'F1',concert:'Concerts',mma:'MMA',sport:'Sport',custom:fr?'Perso':'Custom'};
+  const active = S.evFilter || 'all';
+  const search = S.evSearch || '';
+  const sort = S.evSort || 'marge';
+  let filtered = active === 'all' ? all : all.filter(e => e.cat === active);
+  if (search) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
+  filtered = filtered.slice().sort((a,b) => sort==='score' ? b.score-a.score : sort==='date' ? (a.date||'').localeCompare(b.date||'') : b.marge-a.marge);
+  const avg = filtered.length ? Math.round(filtered.reduce((a,e)=>a+e.marge,0)/filtered.length) : 0;
+
+  const statsHtml = [
+    {lbl:'MARGE MAX', val:'+' + (filtered[0]?.marge||0) + '%', col:'var(--teal)'},
+    {lbl:'MARGE MOY.', val:'+' + avg + '%', col:'var(--gold2)'},
+    {lbl:'>100%', val:String(filtered.filter(e=>e.marge>=100).length), col:'var(--purple)'},
+    {lbl:'TOTAL', val:String(filtered.length), col:'var(--t1)'},
+  ].map(k =>
+    '<div class="kpi-card" style="padding:12px 14px">' +
+      '<div class="kpi-lbl">' + k.lbl + '</div>' +
+      '<div class="kpi-val" style="font-size:20px;color:' + k.col + '">' + k.val + '</div>' +
+    '</div>'
+  ).join('');
+
+  const cardsHtml = filtered.map(ev => {
+    const ps = getPresaleStatus(ev);
+    const psBadge = ps && ps.days >= 0 && ps.days <= 7 ? '<span class="kpi-badge kb-red">🔑 J-' + ps.days + '</span>' : '';
+    const liveBadge = ev.live ? '<span class="kpi-badge kb-teal">● LIVE</span>' : '';
+    const mc = ev.marge>=100 ? 'var(--teal)' : ev.marge>=50 ? 'var(--gold2)' : 'var(--t2)';
+    const tc = ev.marge>=100 ? 'var(--teal)' : ev.marge>=50 ? 'var(--gold)' : 'var(--b1)';
+    return (
+      '<div class="ev-card">' +
+        '<div style="height:3px;background:' + tc + '"></div>' +
+        '<div style="padding:14px 16px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="ev-name" style="font-size:14px">' + (ev.flag||'🎫') + ' ' + ev.name + '</div>' +
+              '<div class="ev-meta">' + (ev.sub||ev.platform||'') + ' · ' + (ev.date||'—') + '</div>' +
+            '</div>' +
+            '<div style="text-align:right;margin-left:8px;flex-shrink:0">' +
+              '<div style="font-size:22px;font-weight:800;color:' + mc + ';font-family:var(--font-mono)">+' + ev.marge + '%</div>' +
+              '<div style="font-size:8px;color:var(--t4);font-family:var(--font-mono)">marge</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">' +
+            '<span class="cat-tag ct-' + (ev.cat||'concert') + '">' + (ev.cat||'concert') + '</span>' +
+            psBadge + liveBadge +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">' +
+            '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px">' +
+              '<div style="font-size:8px;color:var(--t4);font-family:var(--font-mono);margin-bottom:3px">FACE</div>' +
+              '<div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--t2)">' + ev.face + '€</div>' +
+            '</div>' +
+            '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px">' +
+              '<div style="font-size:8px;color:var(--t4);font-family:var(--font-mono);margin-bottom:3px">REVENTE</div>' +
+              '<div style="font-size:15px;font-weight:700;font-family:var(--font-mono);color:var(--teal)">' + ev.resale + '€</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px">' +
+            '<button class="btn-primary" style="flex:1;padding:8px;font-size:11px" onclick="openPlatform(' + ev.id + ')">🛒 Acheter</button>' +
+            '<button class="btn-ghost" style="flex:1;padding:8px;font-size:11px" onclick="addToKanban(' + ev.id + ')">📋 Kanban</button>' +
+            '<button class="btn-ghost" style="width:36px;padding:8px;font-size:14px;color:' + (ev.starred?'var(--gold)':'var(--t3)') + '" onclick="toggleStar(' + ev.id + ',this)">' + (ev.starred?'★':'☆') + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  const catBtns = cats.map(cat =>
+    '<button class="fchip ' + (active===cat?'on':'') + '" onclick="S.evFilter=&quot;' + cat + '&quot;;render()">' + catLabels[cat] + '</button>'
+  ).join('');
+
+  c.innerHTML =
+    '<div class="section-top" style="margin-bottom:14px">' +
+      '<div><div class="section-title">' + (fr?'Événements':'Events') + '</div><div class="section-meta">' + filtered.length + ' / ' + all.length + '</div></div>' +
+      '<button class="btn-primary" onclick="nav(&quot;add&quot;,document.getElementById(&quot;nav-add&quot;))" style="font-size:11px;padding:7px 16px">+ Ajouter</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">' +
+      catBtns +
+      '<select onchange="S.evSort=this.value;render()" style="background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:5px 10px;color:var(--t2);font-size:10.5px;outline:none;font-family:var(--font-mono)">' +
+        '<option value="marge"' + (sort==='marge'?' selected':'') + '>Marge ↓</option>' +
+        '<option value="score"' + (sort==='score'?' selected':'') + '>Score ↓</option>' +
+        '<option value="date"' + (sort==='date'?' selected':'') + '>Date</option>' +
+      '</select>' +
+      '<input placeholder="Rechercher..." value="' + search + '" oninput="S.evSearch=this.value;render()" style="margin-left:auto;background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:6px 12px;color:var(--t1);font-size:12px;outline:none;width:150px">' +
+    '</div>' +
+    '<div class="kpi-grid" style="margin-bottom:14px">' + statsHtml + '</div>' +
+    (filtered.length === 0 ?
+      '<div class="empty"><div class="empty-icon">🎫</div><div class="empty-txt">Aucun event trouvé</div></div>' :
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">' + cardsHtml + '</div>'
+    );
 }
 
-/* ══════════════════════════════════════════════
-   ADD EVENT
-══════════════════════════════════════════════ */
 function renderAdd(c) {
   const fr = S.lang === 'fr';
   c.innerHTML = `
@@ -1773,16 +1842,17 @@ async function checkCountdownAlerts(events) {
 
 async function runScan() {
   const btn=document.getElementById('scan-btn'),lbl=document.getElementById('scan-lbl'),ic=document.getElementById('scan-ic');
+  if (!btn) return;
   btn.classList.add('loading');
-  lbl.textContent = S.lang==='fr'?'Scan...':'Scanning...';
+  if (lbl) lbl.textContent = S.lang==='fr'?'Scan...':'Scanning...';
   const frames=['⟳','↻','⟲']; let i=0;
   const anim = setInterval(()=>{ic.textContent=frames[i++%3];},300);
   await loadSheet();
   if (S.apiUrl) await enrichWithLivePrices();
   const tgSent = await sendTelegramDirect(allEvs(), S.seuil);
   clearInterval(anim);
-  btn.classList.remove('loading');
-  lbl.textContent = S.lang==='fr'?'Scanner':'Scan now';
+  if (btn) btn.classList.remove('loading');
+  if (lbl) lbl.textContent = S.lang==='fr'?'Scanner':'Scan now';
   ic.textContent = '⟳';
   const opp = filtered().length;
   // Countdown alerts J-7 J-3 J-1
