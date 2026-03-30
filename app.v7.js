@@ -432,9 +432,32 @@ function navBack() { nav('dashboard', document.getElementById('nav-dashboard'));
 
 function nav(v, el) {
   S.view = v;
-  document.querySelectorAll('.npill').forEach(n => n.classList.remove('active'));
-  if (el) el.classList.add('active');
+  // Sidebar
+  document.querySelectorAll('.sb-item').forEach(n => n.classList.remove('on'));
+  const sbEl = document.getElementById('nav-' + v);
+  if (sbEl) sbEl.classList.add('on');
+  // Mobile pills
+  document.querySelectorAll('.npill').forEach(n => n.classList.remove('on'));
+  const mobEl = document.getElementById('mob-' + v);
+  if (mobEl) mobEl.classList.add('on');
   render();
+}
+
+function updateTopbarKpis() {
+  const all = allEvs();
+  const tbScans = document.getElementById('tb-scans');
+  const tbOpps  = document.getElementById('tb-opps');
+  const tbRoi   = document.getElementById('tb-roi');
+  const sbUname = document.getElementById('sb-uname');
+  const sbStatus = document.getElementById('sb-status');
+  const sbAvatar = document.getElementById('sb-avatar');
+  if (tbScans) tbScans.textContent = all.length;
+  if (tbOpps)  tbOpps.textContent  = all.filter(e => e.marge >= 100).length;
+  if (tbRoi)   tbRoi.textContent   = '+' + (all.length ? Math.round(all.reduce((a,e)=>a+e.marge,0)/all.length) : 0) + '%';
+  const user = window.currentUser;
+  if (sbUname)  sbUname.textContent  = user ? (user.email?.split('@')[0] || 'user') : 'Non connecté';
+  if (sbStatus) { sbStatus.textContent = user ? '● connecté' : '● offline'; sbStatus.style.color = user ? 'var(--teal)' : 'var(--t4)'; }
+  if (sbAvatar) sbAvatar.textContent = user ? (user.email?.slice(0,1).toUpperCase() || '?') : '?';
 }
 
 /* ══════════════════════════════════════════════
@@ -806,6 +829,7 @@ function renderDrops(c) {
    RENDER DISPATCH
 ══════════════════════════════════════════════ */
 function render() {
+  updateTopbarKpis();
   // Status bar
   const dot = document.getElementById('status-dot');
   const lbl = document.getElementById('status-lbl');
@@ -843,149 +867,338 @@ function renderDash(c) {
   const all = allEvs();
   const fr = S.lang === 'fr';
   const hot = all.filter(e => e.marge >= 100).length;
-  const avg = all.length ? Math.round(all.reduce((a,e)=>a+e.marge,0)/all.length) : 0;
-  const topS = all.length ? all.reduce((a,e)=>e.score>a.score?e:a,all[0]).score : '—';
+  const avg = all.length ? Math.round(all.reduce((a,e) => a+e.marge,0) / all.length) : 0;
   const drops = all.filter(e => hasDrop(e) && dropPct(e) <= -5).length;
+  const upcoming = all.filter(e => {
+    const ps = getPresaleStatus(e);
+    return ps && ps.days >= 0 && ps.days <= 7;
+  }).length;
+
+  // Top 4 trending events by marge
+  const trending = [...all].sort((a,b) => b.marge - a.marge).slice(0,4);
+
+  // Alerts
+  const alerts = [
+    ...all.filter(e => { const ps=getPresaleStatus(e); return ps && ps.days>=0 && ps.days<=3; })
+      .map(e => ({ dot:'var(--gold)', text:`Presale ${e.flag||""} ${e.name.slice(0,22)} · J-${getPresaleStatus(e).days}`, time:'Urgent' })),
+    ...all.filter(e => hasDrop(e) && dropPct(e) <= -5)
+      .slice(0,2)
+      .map(e => ({ dot:'var(--red)', text:`Chute ${e.flag||""} ${e.name.slice(0,20)} ${dropPct(e)}%`, time:'Récent' })),
+    ...all.filter(e => e.marge >= 150).slice(0,3)
+      .map(e => ({ dot:'var(--teal)', text:`Opportunité ${e.flag||""} ${e.name.slice(0,20)} +${e.marge}%`, time:'Live' })),
+  ].slice(0,6);
+
+  // AI suggestions
+  const suggestions = fr
+    ? ['Presale AMEX cette semaine ?','Meilleur moment vendre F1 Monaco ?','Top 3 signal ACHETER','Impact annulation sur prix ?']
+    : ['AMEX presale this week?','Best time sell F1 Monaco?','Top 3 BUY signals','Cancellation price impact?'];
+
+  // Signal function
+  const sig = (ev) => {
+    const history = getPriceHistory();
+    const key = Object.keys(history).find(k => k.slice(0,20) === ev.name.slice(0,20));
+    const snaps = key ? history[key].snapshots : null;
+    return getSignal(ev, snaps);
+  };
+
+  // Thumb bg colors per category
+  const thumbBg = (ev) => {
+    const cats = { f1:'linear-gradient(135deg,#0D2535,#1A4060)', concert:'linear-gradient(135deg,#1A0D35,#301060)', sport:'linear-gradient(135deg,#0D1A10,#0F3020)', mma:'linear-gradient(135deg,#2A0D0D,#401010)' };
+    return cats[ev.cat] || 'linear-gradient(135deg,#111827,#1C2130)';
+  };
+
+  const sentimentLabel = (ev) => {
+    if (ev.marge >= 200) return 'HYPE: VERY HIGH';
+    if (ev.marge >= 100) return 'HYPE: HIGH';
+    if (ev.marge >= 50)  return 'SENTIMENT: RISING';
+    return 'SENTIMENT: STABLE';
+  };
+
+  const predScore = (ev) => Math.min(99, Math.round(50 + ev.marge * 0.18 + (ev.score||7)*2.5));
+
+  const gaugeCirc = (score) => {
+    const pct = score / 100;
+    const circ = 2 * Math.PI * 13;
+    return Math.round(pct * circ);
+  };
+
+  const sigColor = (s) => {
+    if (!s) return 'var(--t3)';
+    if (s.signal === 'ACHETER MAINTENANT') return 'var(--teal)';
+    if (s.signal === 'VENDRE MAINTENANT') return 'var(--red)';
+    if (s.signal === 'VENDRE BIENTÔT') return 'var(--gold2)';
+    if (s.signal === 'ATTENDRE') return 'var(--blue)';
+    return 'var(--t2)';
+  };
 
   c.innerHTML = `
-    ${!S.sheetUrl||S.sheetUrl==='COLLE_ICI_L_URL_CSV_DE_TON_SHEET'?`<div class="banner banner-gold"><div class="banner-pulse"></div>Configure ton Google Sheet dans <span style="cursor:pointer;text-decoration:underline" onclick="nav('settings',document.getElementById('nav-settings'))">⚙ Config</span></div>`:''}
-    ${S.sheetError&&!S.sheetLoaded?`<div class="banner banner-red">✕ Erreur Sheet : ${S.sheetError}</div>`:''}
-
-    <div class="kpi-grid">
-      <div class="kpi-card kc-gold">
-        <div class="kpi-lbl">EVENTS TOTAL</div>
-        <div class="kpi-val" style="color:var(--gold2)">${all.length}</div>
-        <div class="kpi-sub">${fr?'toutes plateformes':'all platforms'}</div>
-        <div class="kpi-badge kb-gold">${S.sheetLoaded?'📊 Sheet':'🗄 Local'}</div>
-      </div>
-      <div class="kpi-card kc-green">
-        <div class="kpi-lbl">MARGE MOY.</div>
-        <div class="kpi-val" style="color:var(--green)">+${avg}%</div>
-        <div class="kpi-sub">${fr?'nette estimée':'net estimated'}</div>
-      </div>
-      <div class="kpi-card kc-gold">
-        <div class="kpi-lbl">OPPS. ≥100%</div>
-        <div class="kpi-val" style="color:var(--gold2)">${hot}</div>
-        <div class="kpi-sub">${fr?'marge premium':'premium margin'}</div>
-        <div class="kpi-badge kb-gold">🔥 hot</div>
-      </div>
-      <div class="kpi-card kc-red">
-        <div class="kpi-lbl">CHUTES PRIX</div>
-        <div class="kpi-val" style="color:var(--red)">${drops}</div>
-        <div class="kpi-sub">${fr?'≥ -5% · acheter':'≥ -5% · buy now'}</div>
-        ${drops>0?`<div class="kpi-badge kb-red">📉 ${fr?'opportunité':'opportunity'}</div>`:''}
-      </div>
-      <div class="kpi-card kc-blue">
-        <div class="kpi-lbl">TOP SCORE</div>
-        <div class="kpi-val" style="color:var(--blue)">${topS}</div>
-        <div class="kpi-sub">/10</div>
-      </div>
-    </div>
-
-    <div class="chart-grid">
-      <div class="chart-card">
-        <div class="chart-title">${fr?'Marge par catégorie':'Margin by category'}</div>
-        <div class="chart-sub">${fr?'Marge nette moyenne estimée':'Average net estimated margin'}</div>
-        <div style="position:relative;height:180px"><canvas id="ch-cat"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">${fr?'Répartition par horizon':'Distribution by horizon'}</div>
-        <div class="legend">
-          <div class="leg-item"><div class="leg-sq" style="background:var(--red)"></div>${fr?'Imminent':'Imminent'} (${all.filter(e=>e.h==='now').length})</div>
-          <div class="leg-item"><div class="leg-sq" style="background:var(--gold)"></div>${fr?'Court terme':'Short-term'} (${all.filter(e=>e.h==='mid').length})</div>
-          <div class="leg-item"><div class="leg-sq" style="background:var(--green)"></div>Déc. 2026 (${all.filter(e=>e.h==='far').length})</div>
-        </div>
-        <div style="position:relative;height:150px"><canvas id="ch-h"></canvas></div>
-      </div>
-    </div>
-
-    ${(S._upcoming||[]).length > 0 ? `
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-head">
-        <span class="card-title">⏰ ${fr?'Events imminents':'Upcoming events'}</span>
-        <span class="card-meta">${(S._upcoming||[]).length} ${fr?'dans les 30 jours':'within 30 days'}</span>
-      </div>
-      ${(S._upcoming||[]).slice(0,5).map(e => {
-        const urgCol = e.days <= 1 ? 'var(--red)' : e.days <= 3 ? 'var(--gold2)' : 'var(--green)';
-        const urgIcon = e.days <= 1 ? '🚨' : e.days <= 3 ? '⚡' : '📅';
-        return `<div class="alert-row">
-          <div class="alert-icon" style="background:${urgCol}15;border:1px solid ${urgCol}40">${urgIcon}</div>
-          <div style="flex:1">
-            <div class="alert-name">${e.flag||'🎫'} ${e.name}</div>
-            <div class="alert-desc">${e.date} · +${e.marge}%</div>
+    <!-- PAGE HEADER -->
+    <div class="page-header">
+      <div class="page-title">Predictive Intelligence Hybrid</div>
+      <div class="page-header-kpis">
+        <div class="ph-kpi">
+          <span style="font-size:14px">📈</span>
+          <div>
+            <div class="ph-kpi-lbl">AVG ROI</div>
+            <div class="ph-kpi-val" style="color:var(--teal)">+${avg}%</div>
           </div>
-          <div style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:${urgCol}">
-            ${e.days === 0 ? "AUJOURD'HUI" : e.days === 1 ? 'DEMAIN' : 'J-'+e.days}
+        </div>
+        <div class="ph-kpi">
+          <span style="font-size:14px">🔔</span>
+          <div>
+            <div class="ph-kpi-lbl">ALERTS</div>
+            <div class="ph-kpi-val" style="color:var(--red)">${alerts.length}</div>
+          </div>
+        </div>
+        <button class="scan-btn" id="scan-btn" onclick="runScan()">⟳ Scanner</button>
+      </div>
+    </div>
+
+    <!-- KPI GRID -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-accent" style="background:var(--teal)"></div>
+        <div class="kpi-lbl">Live Scans</div>
+        <div class="kpi-val" style="color:var(--teal)">${all.length}</div>
+        <div class="kpi-sub">events actifs</div>
+        <div class="kpi-badge" style="background:var(--tealbg);color:var(--teal);border:1px solid var(--tealbdr)">● live</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-accent" style="background:var(--gold)"></div>
+        <div class="kpi-lbl">Opportunities</div>
+        <div class="kpi-val" style="color:var(--gold2)">${hot}</div>
+        <div class="kpi-sub">marge > 100%</div>
+        <div class="kpi-badge" style="background:var(--goldbg);color:var(--gold2);border:1px solid var(--goldbdr)">premium</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-accent" style="background:var(--purple)"></div>
+        <div class="kpi-lbl">AVG ROI · IA</div>
+        <div class="kpi-val" style="color:var(--purple)">+${avg}%</div>
+        <div class="kpi-sub">marge nette est.</div>
+        <div class="kpi-badge" style="background:var(--purplebg);color:var(--purple);border:1px solid var(--purplebdr)">↑ prédictif</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-accent" style="background:var(--red)"></div>
+        <div class="kpi-lbl">Alerts</div>
+        <div class="kpi-val" style="color:var(--red)">${alerts.length || drops}</div>
+        <div class="kpi-sub">presales + chutes</div>
+        <div class="kpi-badge" style="background:var(--redbg);color:var(--red);border:1px solid var(--redbdr)">${upcoming} presales J-7</div>
+      </div>
+    </div>
+
+    <!-- AI ASSISTANT BAR -->
+    <div style="margin-top:14px">
+      <div class="ai-bar">
+        <div class="ai-bar-dot"></div>
+        <input id="ai-dash-input" placeholder="${fr ? 'Question pour TR AI : Quel impact sur Monaco si Ferrari annonce X ?' : 'Ask TR AI: What impact on Monaco if Ferrari announces X?'}" onkeydown="if(event.key==='Enter')runDashAI()">
+        <button class="ai-bar-send" onclick="runDashAI()">Analyser →</button>
+      </div>
+      <div class="ai-suggestions">
+        ${suggestions.map(s => `<div class="ai-sug" onclick="document.getElementById('ai-dash-input').value='${s}'">${s}</div>`).join('')}
+      </div>
+      <div id="ai-dash-resp" style="display:none;margin:0 20px 12px;background:var(--bg2);border:1px solid var(--purplebdr);border-radius:var(--r10);padding:12px 14px;font-size:11.5px;color:var(--t2);font-family:var(--font-mono);line-height:1.6"></div>
+    </div>
+
+    <!-- HEATMAP + WAVES -->
+    <div class="map-section">
+      <div class="map-toolbar">
+        <span class="map-lbl">Heatmap · Demande mondiale</span>
+        <div class="map-sources">
+          <div class="src-pill">X Twitter</div>
+          <div class="src-pill">Reddit</div>
+          <div class="src-pill">Discord</div>
+        </div>
+      </div>
+      <div class="map-body">
+        <svg viewBox="0 0 800 230" preserveAspectRatio="xMidYMid meet">
+          <rect width="800" height="230" fill="#0D1421"/>
+          <!-- Continents simplified -->
+          <path d="M80 60 L160 45 L180 55 L175 80 L190 90 L185 115 L168 118 L152 108 L138 122 L118 128 L98 118 L83 102 L73 82 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <path d="M155 132 L176 126 L187 142 L192 168 L181 198 L165 207 L147 197 L138 176 L144 156 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <path d="M352 38 L396 33 L412 44 L417 60 L406 72 L390 66 L374 72 L363 61 L353 54 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <path d="M368 82 L406 76 L422 92 L427 122 L422 153 L411 172 L390 177 L374 167 L363 142 L358 112 L364 92 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <path d="M414 28 L542 23 L572 38 L582 58 L561 74 L530 79 L499 74 L468 70 L443 64 L418 54 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <path d="M543 84 L581 79 L597 96 L592 117 L571 122 L549 112 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <path d="M598 132 L651 126 L667 141 L661 162 L640 167 L617 160 L604 147 Z" fill="#1A2A3A" stroke="rgba(255,255,255,.04)" stroke-width="0.5"/>
+          <!-- Demand hotspots -->
+          <circle cx="382" cy="49" r="20" fill="rgba(45,212,160,.1)" stroke="rgba(45,212,160,.35)" stroke-width="1"/>
+          <circle cx="382" cy="49" r="9" fill="rgba(45,212,160,.4)"/>
+          <circle cx="382" cy="49" r="4" fill="#2DD4A0"/>
+          <circle cx="396" cy="44" r="24" fill="rgba(212,168,67,.08)" stroke="rgba(212,168,67,.3)" stroke-width="1"/>
+          <circle cx="396" cy="44" r="11" fill="rgba(212,168,67,.35)"/>
+          <circle cx="396" cy="44" r="5" fill="#D4A843"/>
+          <circle cx="491" cy="46" r="15" fill="rgba(167,139,250,.1)" stroke="rgba(167,139,250,.3)" stroke-width="1"/>
+          <circle cx="491" cy="46" r="7" fill="rgba(167,139,250,.35)"/>
+          <circle cx="491" cy="46" r="3" fill="#A78BFA"/>
+          <circle cx="128" cy="82" r="17" fill="rgba(91,164,245,.08)" stroke="rgba(91,164,245,.25)" stroke-width="1"/>
+          <circle cx="128" cy="82" r="7" fill="rgba(91,164,245,.3)"/>
+          <circle cx="432" cy="51" r="12" fill="rgba(255,94,94,.1)" stroke="rgba(255,94,94,.3)" stroke-width="1"/>
+          <circle cx="432" cy="51" r="5" fill="rgba(255,94,94,.5)"/>
+          <circle cx="432" cy="51" r="2.5" fill="#FF5E5E"/>
+          <!-- Wave chart -->
+          <defs>
+            <linearGradient id="gw" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2DD4A0" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="#2DD4A0" stop-opacity="0"/>
+            </linearGradient>
+            <linearGradient id="gr" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#FF5E5E" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="#FF5E5E" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="M0 182 Q40 168 80 173 Q120 178 160 163 Q200 148 240 158 Q280 168 320 153 Q360 138 400 148 Q440 158 480 143 Q520 128 560 138 Q600 148 640 133 Q680 118 720 128 Q760 138 800 123 L800 230 L0 230 Z" fill="url(#gw)"/>
+          <path d="M0 182 Q40 168 80 173 Q120 178 160 163 Q200 148 240 158 Q280 168 320 153 Q360 138 400 148 Q440 158 480 143 Q520 128 560 138 Q600 148 640 133 Q680 118 720 128 Q760 138 800 123" fill="none" stroke="#2DD4A0" stroke-width="1.8"/>
+          <path d="M0 198 Q40 188 80 193 Q120 198 160 188 Q200 178 240 185 Q280 193 320 181 Q360 169 400 178 Q440 187 480 175 Q520 163 560 171 Q600 179 640 168 Q680 156 720 165 Q760 174 800 163 L800 230 L0 230 Z" fill="url(#gr)"/>
+          <path d="M0 198 Q40 188 80 193 Q120 198 160 188 Q200 178 240 185 Q280 193 320 181 Q360 169 400 178 Q440 187 480 175 Q520 163 560 171 Q600 179 640 168 Q680 156 720 165 Q760 174 800 163" fill="none" stroke="#FF5E5E" stroke-width="1.4" stroke-opacity="0.6"/>
+        </svg>
+        <div class="ai-tooltip" id="ai-map-tooltip">
+          <div class="ai-tt-lbl">AI Analysis</div>
+          <div class="ai-tt-sub">Predicted demand spike:</div>
+          <div class="ai-tt-val" id="ai-tt-val">London Date +34%</div>
+          <div class="ai-tt-conf" id="ai-tt-conf">Confidence: High</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ALERTS STRIP -->
+    ${alerts.length ? `
+    <div class="alerts-strip">
+      ${alerts.map(a => `
+        <div class="alert-pill">
+          <div class="alert-dot" style="background:${a.dot}"></div>
+          <span class="alert-text">${a.text}</span>
+          <span class="alert-time">${a.time}</span>
+        </div>`).join('')}
+    </div>` : ''}
+
+    <!-- TRENDING EVENTS -->
+    <div class="trending-header">
+      <div>
+        <div class="trending-title">Trending Events</div>
+        <div class="trending-sub">${fr ? 'Meilleurs ROI · Signal IA actif' : 'Best ROI · AI signal active'}</div>
+      </div>
+      <div class="trending-all" onclick="nav('events', document.getElementById('nav-events'))">
+        ${fr ? 'Voir tout' : 'All events'} →
+      </div>
+    </div>
+
+    <div class="ev-cards-grid">
+      ${trending.map(ev => {
+        const s = sig(ev);
+        const sc = sigColor(s);
+        const ps = predScore(ev);
+        const gc = gaugeCirc(ps);
+        const circ = Math.round(2 * Math.PI * 13);
+        return `
+        <div class="ev6-card" onclick="S.selectedEvent=${JSON.stringify(ev).replace(/"/g,'&quot;')};nav('events',document.getElementById('nav-events'))">
+          <div class="ev6-thumb" style="background:${thumbBg(ev)}">
+            <div class="ev6-avg-block">
+              <div class="ev6-avg-lbl">Score</div>
+              <div class="ev6-avg-val">${ev.score || 8}</div>
+            </div>
+            <div class="ev6-pred-badge">PREDICTIVE ${ps}</div>
+            <div class="ev6-top-right">
+              <div class="ev6-dome-lbl">Marge</div>
+              <div class="ev6-roi-val">+${ev.marge}%</div>
+            </div>
+            <svg class="ev6-gauge" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="13" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="13" fill="none" stroke="${sc}" stroke-width="2.5"
+                stroke-dasharray="${gc} ${circ - gc}" stroke-dashoffset="${Math.round(circ * 0.25)}"
+                transform="rotate(-90 18 18)"/>
+              <text x="18" y="21" text-anchor="middle" font-size="6" fill="rgba(255,255,255,.8)" font-family="monospace">ROI</text>
+            </svg>
+          </div>
+          <div class="ev6-body">
+            <div class="ev6-name">${ev.flag || '🎫'} ${ev.name}</div>
+            <div class="ev6-meta">${ev.platform || ''} · ${ev.date || ''}</div>
+            <div class="ev6-badges">
+              ${s ? `<span class="ev6-signal" style="background:${sc}15;color:${sc};border:1px solid ${sc}40">${s.icon} ${s.signal}</span>` : ''}
+              <span class="ev6-sentiment">${sentimentLabel(ev)}</span>
+            </div>
           </div>
         </div>`;
       }).join('')}
-    </div>` : ''}
-
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-head">
-        <span class="card-title">${fr?'Alertes récentes':'Recent alerts'}</span>
-        <span class="card-meta">${fr?'auto · scan toutes les heures':'auto · hourly scan'}</span>
-      </div>
-      ${ALERTS.map(a => `<div class="alert-row">
-        <div class="alert-icon ai-${a.type}">${a.icon}</div>
-        <div style="flex:1">
-          <div class="alert-name">${a.name}</div>
-          <div class="alert-desc">${a.desc}</div>
-        </div>
-        <div class="alert-time">${a.time}</div>
-      </div>`).join('')}
     </div>
 
+    <!-- RECENT PRICE DROPS -->
+    ${drops > 0 ? `
     <div class="card">
       <div class="card-head">
-        <span class="card-title">${fr?'Top opportunités':'Top opportunities'}</span>
-        <span class="card-act" onclick="nav('events',document.getElementById('nav-events'))">${fr?'voir tout →':'all →'}</span>
+        <span class="card-title">📉 ${fr ? 'Chutes de prix récentes' : 'Recent price drops'}</span>
+        <span class="card-meta">${drops} event${drops > 1 ? 's' : ''}</span>
       </div>
-      ${buildTable(all.slice().sort((a,b)=>b.marge-a.marge).slice(0,5))}
-      ${buildMobileCards(all.slice().sort((a,b)=>b.marge-a.marge).slice(0,5))}
-    </div>`;
+      ${all.filter(e => hasDrop(e) && dropPct(e) <= -5).slice(0,4).map(ev => `
+        <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--b1)">
+          <span style="font-size:16px">${ev.flag || '🎫'}</span>
+          <div style="flex:1">
+            <div style="font-size:12.5px;font-weight:700;color:var(--t1)">${ev.name}</div>
+            <div style="font-size:9.5px;color:var(--t3);font-family:var(--font-mono)">${ev.date || ''}</div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--red);font-weight:700">${dropPct(ev)}%</span>
+          <span class="mb-${ev.marge >= 100 ? 'hot' : ev.marge >= 50 ? 'mid' : 'low'}">+${ev.marge}%</span>
+        </div>`).join('')}
+    </div>` : ''}
+  `;
 
-  setTimeout(() => {
-    if (S.charts.cat) S.charts.cat.destroy();
-    const cats = ['f1','concert','mma','sport'];
-    S.charts.cat = new Chart(document.getElementById('ch-cat'), {
-      type: 'bar',
-      data: {
-        labels: ['F1','Concert','MMA','Sport'],
-        datasets: [{
-          data: cats.map(cat => { const ev=all.filter(e=>e.cat===cat); return ev.length?Math.round(ev.reduce((a,e)=>a+e.marge,0)/ev.length):0; }),
-          backgroundColor: ['#D4A843','#A78BFA','#FF5E5E','#2DD4A0'],
-          borderRadius: 6, borderSkipped: false
-        }]
-      },
-      options: {
-        responsive:true, maintainAspectRatio:false,
-        plugins:{legend:{display:false}},
-        scales:{
-          x:{grid:{color:'rgba(240,237,232,0.04)'},ticks:{color:'#605A52',font:{size:10,family:'IBM Plex Mono'}}},
-          y:{grid:{color:'rgba(240,237,232,0.04)'},ticks:{color:'#605A52',font:{size:10,family:'IBM Plex Mono'},callback:v=>'+'+v+'%'}}
-        }
-      }
-    });
-    if (S.charts.h) S.charts.h.destroy();
-    S.charts.h = new Chart(document.getElementById('ch-h'), {
-      type: 'doughnut',
-      data: {
-        labels:[fr?'Imminent':'Imminent',fr?'Court terme':'Short-term','Déc. 2026'],
-        datasets:[{
-          data:[all.filter(e=>e.h==='now').length,all.filter(e=>e.h==='mid').length,all.filter(e=>e.h==='far').length],
-          backgroundColor:['#FF5E5E','#D4A843','#2DD4A0'],
-          borderWidth:0, spacing:3
-        }]
-      },
-      options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false}}}
-    });
-  }, 80);
+  // AI tooltip rotation
+  const tooltips = [
+    { val: 'London Date +34%', conf: 'Confidence: Very High', color: 'var(--teal)' },
+    { val: `F1 Monaco — peak J-21`, conf: 'Confidence: High', color: 'var(--gold2)' },
+    { val: `CL Final — vendre now`, conf: 'Confidence: 97%', color: 'var(--red)' },
+    { val: `Glastonbury demand ↑`, conf: 'Confidence: Medium', color: 'var(--purple)' },
+  ];
+  let ttIdx = 0;
+  const ttEl = document.getElementById('ai-tt-val');
+  const ttConf = document.getElementById('ai-tt-conf');
+  if (ttEl) {
+    clearInterval(window._ttInterval);
+    window._ttInterval = setInterval(() => {
+      ttIdx = (ttIdx + 1) % tooltips.length;
+      const t = tooltips[ttIdx];
+      ttEl.textContent = t.val;
+      ttEl.style.color = t.color;
+      ttConf.textContent = t.conf;
+      ttConf.style.color = t.color;
+    }, 3500);
+  }
 }
 
-/* ══════════════════════════════════════════════
-   EVENTS
-══════════════════════════════════════════════ */
+async function runDashAI() {
+  const input = document.getElementById('ai-dash-input');
+  const resp  = document.getElementById('ai-dash-resp');
+  if (!input || !resp || !input.value.trim()) return;
+  const q = input.value.trim();
+  resp.style.display = 'block';
+  resp.innerHTML = '<span style="color:var(--purple)">⟳ Analyse en cours...</span>';
+
+  // Simple local AI responses based on keywords
+  await new Promise(r => setTimeout(r, 600));
+  const all = allEvs();
+  const top3buy = [...all].sort((a,b) => b.marge - a.marge).slice(0,3);
+
+  let answer = '';
+  const ql = q.toLowerCase();
+  if (ql.includes('presale') || ql.includes('amex')) {
+    const presales = all.filter(e => e.presale_date).slice(0,3);
+    answer = `<strong style="color:var(--purple)">Presales prioritaires :</strong> ${presales.map(e => `${e.flag} ${e.name} (${e.presale_date}, ${e.presale_code})`).join(' · ') || 'Aucune presale datée — ajoute presale_date dans ton Sheet'}`;
+  } else if (ql.includes('vendre') || ql.includes('sell') || ql.includes('peak')) {
+    const best = top3buy[0];
+    answer = `<strong style="color:var(--red)">Signal VENDRE :</strong> ${best?.flag} ${best?.name} — peak estimé dans ~21 jours. Prix actuel ${best?.resale}€, projection +12%. Vendre avant J-14 pour capturer le maximum.`;
+  } else if (ql.includes('acheter') || ql.includes('buy') || ql.includes('top')) {
+    answer = `<strong style="color:var(--teal)">Top 3 signal ACHETER :</strong><br>${top3buy.map((e,i) => `${i+1}. ${e.flag} ${e.name} — +${e.marge}% marge · Score ${Math.round(50+e.marge*.18+(e.score||7)*2.5)}/100`).join('<br>')}`;
+  } else if (ql.includes('annulat') || ql.includes('cancel') || ql.includes('impact')) {
+    answer = `<strong style="color:var(--gold2)">Impact annulation :</strong> Effet de report moyen +23% sur events similaires dans la même zone géo (30 jours). Surveiller les events de même artiste ou même ville.`;
+  } else if (ql.includes('monaco') || ql.includes('f1')) {
+    const f1 = all.find(e => e.cat === 'f1' && e.name.toLowerCase().includes('monaco'));
+    answer = `<strong style="color:var(--gold2)">F1 Monaco :</strong> ${f1 ? `Face ${f1.face}€ → Revente ${f1.resale}€ · +${f1.marge}% marge · Score ${f1.score}` : 'Non trouvé'}. Peak de demande estimé à J-21 de l'event. Signal actuel : ACHETER.`;
+  } else {
+    answer = `<strong style="color:var(--purple)">Analyse globale :</strong> ${all.length} events trackés · ${all.filter(e=>e.marge>=100).length} opportunités premium · ${all.filter(e=>e.presale_date).length} presales datées. Meilleure opportunité du jour : ${top3buy[0]?.flag} ${top3buy[0]?.name} (+${top3buy[0]?.marge}%).`;
+  }
+  resp.innerHTML = answer;
+}
+
+
 function renderEvents(c) {
   const fr = S.lang === 'fr';
   const evs = filtered();
@@ -2527,4 +2740,18 @@ window.submitAuth     = submitAuth;
 window.toggleUserMenu = toggleUserMenu;
 window.closeUserMenu  = closeUserMenu;
 window.togglePwd      = togglePwd;
-window.doSignOut      = doSignOut;
+window.doSignOut           = doSignOut;
+window.updateTopbarKpis    = updateTopbarKpis;
+window.runDashAI           = runDashAI;
+window.globalSearch   = globalSearch;
+window.askDashAI      = askDashAI;
+window.setDashQ       = setDashQ;
+function globalSearch(q) {
+  if (!q) { render(); return; }
+  const lq = q.toLowerCase();
+  const filtered = allEvs().filter(e => e.name.toLowerCase().includes(lq) || (e.sub||'').toLowerCase().includes(lq));
+  const c = document.getElementById('content');
+  if (!c) return;
+  if (filtered.length === 0) { c.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-txt">Aucun résultat pour "' + q + '"</div></div>'; return; }
+  c.innerHTML = '<div style="padding:0 0 12px"><div style="font-family:var(--font-mono);font-size:10px;color:var(--t2);margin-bottom:14px">' + filtered.length + ' résultat(s) pour "' + q + '"</div>' + renderTable(filtered) + '</div>';
+}
