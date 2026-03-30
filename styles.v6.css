@@ -171,7 +171,7 @@ body { background:var(--v6-bg); color:var(--v6-t1); font-family:var(--font-body)
 
 /* ══ EVENT CARDS ══ */
 .ev-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
-.ev-card { background:var(--v6-bg2); border:1px solid var(--v6-b1); border-radius:12px; overflow:hidden; cursor:pointer; transition:all .15s; }
+.ev-card { background:var(--v6-bg2); border:1px solid var(--v6-b1); border-radius:12px; overflow:hidden; cursor:pointer; transition:all .15s; max-width:100%; }
 .ev-card:hover { border-color:var(--v6-b2); transform:translateY(-1px); }
 .ev-card-thumb { width:100%; height:90px; display:flex; align-items:flex-start; justify-content:space-between; padding:9px 10px; position:relative; overflow:hidden; }
 .ev-thumb-bg { position:absolute; inset:0; }
@@ -181,7 +181,7 @@ body { background:var(--v6-bg); color:var(--v6-t1); font-family:var(--font-body)
 .ev-roi-block { position:relative; z-index:1; text-align:right; }
 .ev-roi-lbl { font-size:7px; color:rgba(255,255,255,.4); letter-spacing:.06em; font-family:var(--font-mono); }
 .ev-roi-val { font-size:12px; font-weight:700; font-family:var(--font-mono); }
-.ev-gauge-wrap { position:absolute; bottom:8px; right:8px; z-index:1; }
+.ev-gauge-wrap { position:absolute; bottom:8px; right:8px; z-index:1; width:36px; height:36px; overflow:hidden; }
 .ev-body { padding:10px 12px; }
 .ev-name { font-size:12.5px; font-weight:700; color:var(--v6-t1); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ev-meta { font-size:9.5px; color:var(--v6-t2); font-family:var(--font-mono); margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -381,3 +381,6 @@ td { padding:11px 14px; vertical-align:middle; }
 @media(max-width:900px) { .shell-v6 { grid-template-columns:1fr; } .sidebar-v6 { display:none; } .kpi-grid { grid-template-columns:repeat(2,1fr); } .ev-grid { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:640px) { .mobile-nav { display:flex; } .kpi-grid { grid-template-columns:repeat(2,1fr); gap:8px; } .ev-grid,.kanban-board,.comp-grid,.roi-grid { grid-template-columns:1fr; } .form-grid,.settings-grid { grid-template-columns:1fr; } .topbar-v6 { padding:8px 12px; gap:6px; } .tbv6-search { display:none; } .tbv6-kpi { display:none; } .tbv6-kpi:first-child { display:flex; } }
 @media(min-width:641px) { .mobile-nav { display:none !important; } }
+
+.ev-card svg { max-width:100%; height:auto; display:block; }
+.ev-card-thumb svg { width:36px !important; height:36px !important; flex-shrink:0; }
