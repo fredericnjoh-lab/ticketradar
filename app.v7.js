@@ -86,8 +86,8 @@ const dropPct = e => e.prevResale ? Math.round(((e.resale - e.prevResale) / e.pr
 
 function toast(msg, icon='✓') {
   const el = document.getElementById('toast');
-  document.getElementById('t-icon').textContent = icon;
-  document.getElementById('t-msg').textContent = msg;
+  if (!el) return;
+  el.innerHTML = '<span>' + (icon||'✓') + '</span> ' + msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 3000);
 }
