@@ -52,7 +52,7 @@ const KANBAN_LABELS_EN = {watch:'Watching',bought:'Bought',selling:'Selling',sol
 
 const S = {
   lang: localStorage.getItem('tr-lang') || 'fr',
-  view: 'dashboard',
+  view: 'dash',
   cat: 'all', horizon: 'all',
   seuil: parseInt(localStorage.getItem('tr-seuil')) || 30,
   search: '', sortCol: 'marge', sortDir: -1,
@@ -396,10 +396,7 @@ function applyLang() {
   if(document.getElementById('mkt-list')) renderMarkets();
 }
 
-function renderMarkets() {
-  const el = document.getElementById('mkt-list');
-  if (!el) return; // sidebar markets removed in v6
-}
+function renderMarkets() { const el = document.getElementById('mkt-list'); if (!el) return; }
 
 function toggleMkt(i) { MARKETS[i].on = !MARKETS[i].on; if(document.getElementById('mkt-list')) renderMarkets(); }
 
@@ -430,8 +427,8 @@ function navBack() { nav('dashboard', document.getElementById('nav-dashboard'));
 
 function nav(v, el) {
   S.view = v;
-  document.querySelectorAll('.npill').forEach(n => n.classList.remove('active'));
-  if (el) el.classList.add('active');
+  document.querySelectorAll('.npill, .sb-item').forEach(n => n.classList.remove('active', 'on'));
+  if (el) { el.classList.add('active'); el.classList.add('on'); }
   render();
 }
 
@@ -455,6 +452,10 @@ function updateTopbarKpis() {
 /* ══════════════════════════════════════════════
    TABLE
 ══════════════════════════════════════════════ */
+  // Update sidebar user info
+  const emailSb = document.getElementById('user-email-sb');
+  if (emailSb && window.currentUser) emailSb.textContent = (window.currentUser.email||'').split('@')[0];
+
 function buildMobileCards(evs) {
   const fr = S.lang === 'fr';
   if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
@@ -825,9 +826,9 @@ function render() {
   // Status bar
   const dot = document.getElementById('status-dot');
   const lbl = document.getElementById('status-lbl');
-  if (S.loadingSheet) { dot.style.background='var(--gold)'; lbl.textContent='chargement...'; }
-  else if (S.sheetLoaded) { dot.style.background='var(--green)'; lbl.textContent='sheet ✓'; }
-  else { dot.style.background='var(--t4)'; lbl.textContent='local'; }
+  if (S.loadingSheet) { if(dot) dot.style.background='var(--gold)'; if(lbl) lbl.textContent='chargement...'; }
+  else if (S.sheetLoaded) { if(dot) dot.style.background='var(--teal)'; if(lbl) lbl.textContent='sheet ✓'; }
+  else { if(dot) dot.style.background='var(--t4)'; if(lbl) lbl.textContent='local'; }
 
   // TG sidebar
   const tgEl = document.getElementById('tg-sidebar');
@@ -836,7 +837,7 @@ function render() {
     : '<span style="color:var(--t3)">Non configuré</span>';
 
   const c = document.getElementById('content');
-  if (S.view === 'dashboard') renderDash(c);
+  if (S.view === 'dashboard' || S.view === 'dash') renderDash(c);
   else if (S.view === 'events') renderEvents(c);
   else if (S.view === 'kanban') renderKanban(c);
   else if (S.view === 'drops') renderDrops(c);

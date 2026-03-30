@@ -4,128 +4,122 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>TicketRadar</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.v6.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-
 <div class="toast" id="toast"></div>
-
-<!-- TOPBAR -->
-<div class="topbar" id="topbar">
-  <div class="topbar-left">
-    <div class="logo-mark">TR</div>
-    <div class="logo-text">
-      <div class="logo-name">TicketRadar</div>
-      <div class="logo-tag" id="status-bar">
-        <span class="status-dot" id="status-dot"></span>
-        <span id="status-lbl">local</span>
+<div class="shell-v6">
+  <aside class="sidebar-v6">
+    <div class="sbv6-logo">
+      <div class="sbv6-mark">TR</div>
+      <div>
+        <div class="sbv6-name">TicketRadar</div>
+        <div class="sbv6-tag"><span id="status-dot" class="sbv6-dot"></span><span id="status-lbl">local</span></div>
       </div>
     </div>
-  </div>
-  <nav class="nav-pills" id="nav-pills">
-    <button class="npill active" id="nav-dash" onclick="nav('dash',this)">📊 Dashboard</button>
-    <button class="npill" id="nav-events" onclick="nav('events',this)">🎫 Events</button>
-    <button class="npill" id="nav-kanban" onclick="nav('kanban',this)">📋 Kanban</button>
-    <button class="npill" id="nav-drops" onclick="nav('drops',this)">📉 Chutes</button>
-    <button class="npill" id="nav-history" onclick="nav('history',this)">📈 Prix</button>
-    <button class="npill" id="nav-ai" onclick="nav('ai',this)">🤖 IA</button>
-    <button class="npill" id="nav-presale" onclick="nav('presale',this)">🔑 Presale</button>
-    <button class="npill" id="nav-map" onclick="nav('map',this)">🗺️ Carte</button>
-    <button class="npill" id="nav-wl" onclick="nav('wl',this)">★ Watchlist</button>
-    <button class="npill" id="nav-compare" onclick="nav('compare',this)">⚖ Compare</button>
-    <button class="npill" id="nav-roi" onclick="nav('roi',this)">💰 ROI</button>
-    <button class="npill" id="nav-settings" onclick="nav('settings',this)">⚙ Config</button>
-  </nav>
-  <div class="topbar-right">
-    <div class="lang-toggle">
-      <button class="lang-btn active" id="lang-fr" onclick="setLang('fr')">FR</button>
-      <button class="lang-btn" id="lang-en" onclick="setLang('en')">EN</button>
+    <div class="sbv6-section-lbl">NAVIGATION</div>
+    <div class="sb-item active npill" id="nav-dash" onclick="nav('dash',this)"><span class="sbi-dot"></span> Dashboard</div>
+    <div class="sb-item npill" id="nav-events" onclick="nav('events',this)"><span class="sbi-dot"></span> Events</div>
+    <div class="sb-item npill" id="nav-kanban" onclick="nav('kanban',this)"><span class="sbi-dot"></span> Kanban P&amp;L</div>
+    <div class="sb-item npill" id="nav-presale" onclick="nav('presale',this)"><span class="sbi-dot" style="background:var(--v6-gold)"></span> Presale</div>
+    <div class="sbv6-section-lbl">INTELLIGENCE</div>
+    <div class="sb-item npill" id="nav-ai" onclick="nav('ai',this)"><span class="sbi-dot" style="background:var(--v6-purple)"></span> AI Predictor</div>
+    <div class="sb-item npill" id="nav-history" onclick="nav('history',this)"><span class="sbi-dot" style="background:var(--v6-blue)"></span> Price History</div>
+    <div class="sb-item npill" id="nav-map" onclick="nav('map',this)"><span class="sbi-dot" style="background:var(--v6-teal)"></span> Map</div>
+    <div class="sb-item npill" id="nav-drops" onclick="nav('drops',this)"><span class="sbi-dot" style="background:var(--v6-red)"></span> Chutes Prix</div>
+    <div class="sbv6-section-lbl">OUTILS</div>
+    <div class="sb-item npill" id="nav-wl" onclick="nav('wl',this)"><span class="sbi-dot"></span> Watchlist</div>
+    <div class="sb-item npill" id="nav-compare" onclick="nav('compare',this)"><span class="sbi-dot"></span> Comparer</div>
+    <div class="sb-item npill" id="nav-roi" onclick="nav('roi',this)"><span class="sbi-dot"></span> ROI Calc</div>
+    <div class="sb-item npill" id="nav-add" onclick="nav('add',this)"><span class="sbi-dot"></span> + Ajouter</div>
+    <div class="sb-item npill" id="nav-settings" onclick="nav('settings',this)"><span class="sbi-dot"></span> Config ⚙</div>
+    <div class="sbv6-section-lbl">SEUIL ALERTE</div>
+    <div class="sbv6-seuil">
+      <div class="sbv6-seuil-row">
+        <span id="sb-min-lbl" style="font-size:10px;color:var(--v6-t3)">marge min.</span>
+        <span id="seuil-val" style="font-size:10px;color:var(--v6-teal);font-family:monospace">+30%</span>
+      </div>
+      <input type="range" id="seuil" min="0" max="300" step="5" value="30" oninput="S.seuil=+this.value;document.getElementById('seuil-val').textContent='+'+this.value+'%';saveState()" style="width:100%;accent-color:var(--v6-teal);cursor:pointer">
     </div>
-    <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Thème">☀️</button>
-    <button id="user-btn" onclick="toggleUserMenu()" style="width:32px;height:32px;border-radius:50%;background:var(--goldbg);border:1px solid var(--goldbdr);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Mon compte">👤</button>
-    <button class="scan-btn" id="scan-btn" onclick="runScan()">
-      <span id="scan-ic">⟳</span> <span id="scan-lbl">Scanner</span>
-    </button>
-  </div>
-</div>
-
-<!-- SHELL -->
-<div class="shell">
-
-  <!-- Sidebar -->
-  <div class="sidebar">
-    <div class="sb-section">
-      <div class="sb-lbl" id="sb-mkt-lbl">MARCHÉS</div>
-      <div id="mkt-list"></div>
-    </div>
-    <div class="sb-section">
-      <div class="sb-lbl" id="sb-seuil-lbl">SEUIL ALERTE</div>
-      <div class="seuil-wrap">
-        <div class="seuil-row">
-          <span class="seuil-lbl" id="sb-min-lbl">marge min.</span>
-          <span id="seuil-val">+30%</span>
+    <div class="sbv6-section-lbl" id="sb-mkt-lbl">MARCHÉS</div>
+    <div id="mkt-list" style="padding:0 12px"></div>
+    <div class="sbv6-section-lbl">TELEGRAM</div>
+    <div id="tg-sidebar" style="font-size:10px;color:var(--v6-t3);padding:0 14px 8px"></div>
+    <div class="sbv6-bottom">
+      <div class="sbv6-user" onclick="toggleUserMenu()">
+        <div class="sbv6-avatar" id="user-btn">👤</div>
+        <div>
+          <div style="font-size:12px;color:var(--v6-t1);font-weight:500" id="user-email-sb">Mon compte</div>
+          <div style="font-size:9px;color:var(--v6-teal);font-family:monospace">● local</div>
         </div>
-        <input type="range" id="seuil" min="0" max="300" step="5" value="30"
-          oninput="S.seuil=+this.value;document.getElementById('seuil-val').textContent='+'+this.value+'%';saveState()">
       </div>
     </div>
-    <div class="sb-section">
-      <div class="sb-lbl">TELEGRAM</div>
-      <div id="tg-sidebar" style="font-size:10px;color:var(--t3);padding:0 8px"></div>
+  </aside>
+  <div class="mainarea-v6">
+    <div class="topbar-v6">
+      <div class="tbv6-kpis">
+        <div class="tbv6-kpi"><div class="tbv6-lbl">LIVE SCANS</div><div class="tbv6-val" id="tb-scans">—</div></div>
+        <div class="tbv6-kpi"><div class="tbv6-lbl">OPPORTUNITIES</div><div class="tbv6-val" id="tb-opps">—</div></div>
+        <div class="tbv6-kpi"><div class="tbv6-lbl">AVG ROI</div><div class="tbv6-val" id="tb-roi" style="color:var(--v6-teal)">—</div></div>
+      </div>
+      <div class="tbv6-search">
+        <svg width="12" height="12" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--v6-t3)" stroke-width="1.5"/><line x1="11" y1="11" x2="15" y2="15" stroke="var(--v6-t3)" stroke-width="1.5"/></svg>
+        <input placeholder="Search events..." id="global-search" oninput="if(window.globalSearch)globalSearch(this.value)">
+      </div>
+      <div class="tbv6-right">
+        <div class="lang-toggle">
+          <button class="lang-btn active" id="lang-fr" onclick="setLang('fr')">FR</button>
+          <button class="lang-btn" id="lang-en" onclick="setLang('en')">EN</button>
+        </div>
+        <button class="theme-btn" id="theme-btn" onclick="toggleTheme()">☀️</button>
+        <div id="notif-btn" class="tbv6-notif">🔔<span id="notif-count" style="display:none;background:var(--v6-red);color:#fff;border-radius:50%;font-size:8px;padding:1px 4px;margin-left:2px">0</span></div>
+        <button class="scan-btn" id="scan-btn" onclick="runScan()"><span id="scan-ic">⟳</span> <span id="scan-lbl">Scanner</span></button>
+      </div>
     </div>
+    <div class="content" id="content"></div>
   </div>
-
-  <!-- Content -->
-  <div id="content"></div>
-
 </div>
-
-<!-- AUTH MODAL -->
+<div class="mobile-nav" id="mobile-nav">
+  <button class="mnav-item active" id="mob-dash" onclick="nav('dash',this)"><span class="mnav-icon">📊</span><span class="mnav-label">Dashboard</span></button>
+  <button class="mnav-item" id="mob-events" onclick="nav('events',this)"><span class="mnav-icon">🎫</span><span class="mnav-label">Events</span></button>
+  <button class="mnav-item" id="mob-kanban" onclick="nav('kanban',this)"><span class="mnav-icon">📋</span><span class="mnav-label">Kanban</span></button>
+  <button class="mnav-item" id="mob-ai" onclick="nav('ai',this)"><span class="mnav-icon">🤖</span><span class="mnav-label">IA</span></button>
+  <button class="mnav-item" id="mob-settings" onclick="nav('settings',this)"><span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span></button>
+</div>
 <div id="auth-overlay" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(5,5,7,.95);backdrop-filter:blur(20px);align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--b2);border-radius:var(--r16);padding:32px;width:360px;max-width:90vw">
+  <div style="background:#13181F;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:32px;width:360px;max-width:90vw">
     <div style="text-align:center;margin-bottom:24px">
-      <div style="width:48px;height:48px;background:var(--gold);border-radius:var(--r12);display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-weight:800;font-size:20px;color:var(--bg0);margin:0 auto 12px">TR</div>
-      <div style="font-family:var(--font-head);font-size:20px;font-weight:800;letter-spacing:-.03em">TicketRadar</div>
-      <div style="font-family:var(--font-mono);font-size:10px;color:var(--t3);margin-top:4px" id="auth-subtitle">Connecte-toi pour sauvegarder tes données</div>
+      <div style="width:48px;height:48px;background:var(--v6-teal);border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#09090F;margin:0 auto 12px">TR</div>
+      <div style="font-size:20px;font-weight:800;color:#E6EDF3">TicketRadar</div>
+      <div style="font-size:10px;color:#484F58;margin-top:4px;font-family:monospace" id="auth-subtitle">Connecte-toi pour sauvegarder tes données</div>
     </div>
-    <div style="display:flex;gap:4px;background:var(--bg3);border-radius:var(--r8);padding:3px;margin-bottom:20px">
-      <button id="tab-signin" onclick="switchAuthTab('signin')" style="flex:1;padding:7px;border-radius:6px;border:none;background:var(--bg5);color:var(--gold2);font-family:var(--font-head);font-size:12px;font-weight:700;cursor:pointer">Connexion</button>
-      <button id="tab-signup" onclick="switchAuthTab('signup')" style="flex:1;padding:7px;border-radius:6px;border:none;background:transparent;color:var(--t3);font-family:var(--font-head);font-size:12px;cursor:pointer">Inscription</button>
+    <div style="display:flex;gap:4px;background:#0E1117;border-radius:8px;padding:3px;margin-bottom:20px">
+      <button id="tab-signin" onclick="switchAuthTab('signin')" style="flex:1;padding:7px;border-radius:6px;border:none;background:#1C2333;color:#2DD4A0;font-size:12px;font-weight:700;cursor:pointer">Connexion</button>
+      <button id="tab-signup" onclick="switchAuthTab('signup')" style="flex:1;padding:7px;border-radius:6px;border:none;background:transparent;color:#484F58;font-size:12px;cursor:pointer">Inscription</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px">
-      <input id="auth-email" type="email" placeholder="ton@email.com" style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:11px 14px;color:var(--t1);font-size:13px;outline:none;font-family:var(--font-body);width:100%;box-sizing:border-box" onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--b3)'" onkeydown="if(event.key==='Enter')document.getElementById('auth-password').focus()">
+      <input id="auth-email" type="email" placeholder="ton@email.com" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')document.getElementById('auth-password').focus()">
       <div style="position:relative">
-        <input id="auth-password" type="password" placeholder="Mot de passe" style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:11px 40px 11px 14px;color:var(--t1);font-size:13px;outline:none;font-family:var(--font-body);width:100%;box-sizing:border-box" onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--b3)'" onkeydown="if(event.key==='Enter')submitAuth()">
-        <button onclick="togglePwd()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:var(--t3);padding:4px" id="pwd-eye">👁</button>
+        <input id="auth-password" type="password" placeholder="Mot de passe" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 40px 11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')submitAuth()">
+        <button onclick="togglePwd()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:#484F58" id="pwd-eye">👁</button>
       </div>
-      <div id="auth-error" style="font-size:11px;color:var(--red);font-family:var(--font-mono);display:none;padding:8px 12px;background:var(--redbg);border:1px solid var(--redbdr);border-radius:var(--r8)"></div>
-      <button onclick="submitAuth()" id="auth-submit-btn" style="background:var(--gold);color:var(--bg0);border:none;border-radius:var(--r8);padding:13px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font-head);letter-spacing:.02em;transition:all .15s;width:100%">Se connecter</button>
-      <div style="display:flex;align-items:center;gap:8px;margin:2px 0">
-        <div style="flex:1;height:1px;background:var(--b3)"></div>
-        <span style="font-size:10px;color:var(--t4);font-family:var(--font-mono)">ou</span>
-        <div style="flex:1;height:1px;background:var(--b3)"></div>
-      </div>
-      <button onclick="skipAuth()" style="background:var(--bg3);color:var(--t2);border:1px solid var(--b3);border-radius:var(--r8);padding:11px;font-size:12px;cursor:pointer;font-family:var(--font-body);width:100%">Continuer sans compte</button>
+      <div id="auth-error" style="font-size:11px;color:#FF5E5E;display:none;padding:8px 12px;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px"></div>
+      <button onclick="submitAuth()" id="auth-submit-btn" style="background:#2DD4A0;color:#09090F;border:none;border-radius:8px;padding:13px;font-size:13px;font-weight:700;cursor:pointer;width:100%">Se connecter</button>
+      <button onclick="skipAuth()" style="background:transparent;color:#8B949E;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px;font-size:12px;cursor:pointer;width:100%">Continuer sans compte</button>
     </div>
-    <div id="auth-success" style="display:none;text-align:center;padding:16px;color:var(--green);font-family:var(--font-mono);font-size:12px"></div>
+    <div id="auth-success" style="display:none;text-align:center;padding:16px;color:#2DD4A0;font-family:monospace;font-size:12px"></div>
   </div>
 </div>
-
-<!-- USER MENU -->
-<div id="user-menu" style="display:none;position:fixed;top:60px;right:16px;z-index:500;background:var(--bg3);border:1px solid var(--b2);border-radius:var(--r12);padding:12px;min-width:200px;box-shadow:0 8px 32px rgba(0,0,0,.4)">
-  <div id="user-email" style="font-family:var(--font-mono);font-size:10px;color:var(--t3);margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--b3)"></div>
-  <button onclick="doSignOut()" style="width:100%;background:var(--redbg);border:1px solid var(--redbdr);border-radius:var(--r8);padding:10px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font-body)">👋 Se déconnecter</button>
+<div id="user-menu" style="display:none;position:fixed;top:60px;right:16px;z-index:500;background:#13181F;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;min-width:200px">
+  <div id="user-email" style="font-family:monospace;font-size:10px;color:#484F58;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.06)"></div>
+  <button onclick="doSignOut()" style="width:100%;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px;padding:10px;color:#FF5E5E;font-size:12px;font-weight:600;cursor:pointer">👋 Se déconnecter</button>
 </div>
-
-<!-- SCRIPTS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="./config.js"></script>
 <script src="./app.v7.js"></script>
 <script src="./supabase.js"></script>
-
 </body>
 </html>
