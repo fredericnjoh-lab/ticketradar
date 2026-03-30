@@ -393,17 +393,15 @@ function applyLang() {
   document.getElementById('sb-mkt-lbl').textContent = fr ? 'MARCHÉS' : 'MARKETS';
   document.getElementById('sb-seuil-lbl').textContent = fr ? 'SEUIL ALERTE' : 'THRESHOLD';
   document.getElementById('sb-min-lbl').textContent = fr ? 'marge min.' : 'min. margin';
-  renderMarkets();
+  if(document.getElementById('mkt-list')) renderMarkets();
 }
 
 function renderMarkets() {
-  document.getElementById('mkt-list').innerHTML = MARKETS.map((m,i) => `
-    <div class="sb-mkt ${m.on?'on':''}" onclick="toggleMkt(${i})">
-      <span class="sb-mkt-label">${m.label}</span>
-      <div class="tog ${m.on?'on':''}"></div>
-    </div>`).join('');
+  const el = document.getElementById('mkt-list');
+  if (!el) return; // sidebar markets removed in v6
 }
-function toggleMkt(i) { MARKETS[i].on = !MARKETS[i].on; renderMarkets(); }
+
+function toggleMkt(i) { MARKETS[i].on = !MARKETS[i].on; if(document.getElementById('mkt-list')) renderMarkets(); }
 
 function onSeuil(v) {
   S.seuil = +v;
@@ -1995,7 +1993,7 @@ function init() {
   [...FALLBACK_EVENTS, ...S.sheetEvents, ...S.customEvents].forEach(e => {
     if (_starred.includes(e.id)) e.starred = true;
   });
-  renderMarkets();
+  if(document.getElementById('mkt-list')) renderMarkets();
   applyLang();
   render();
   loadSheet();
@@ -2743,9 +2741,6 @@ window.togglePwd      = togglePwd;
 window.doSignOut           = doSignOut;
 window.updateTopbarKpis    = updateTopbarKpis;
 window.runDashAI           = runDashAI;
-window.globalSearch   = globalSearch;
-window.askDashAI      = askDashAI;
-window.setDashQ       = setDashQ;
 function globalSearch(q) {
   if (!q) { render(); return; }
   const lq = q.toLowerCase();
@@ -2755,3 +2750,6 @@ function globalSearch(q) {
   if (filtered.length === 0) { c.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-txt">Aucun résultat pour "' + q + '"</div></div>'; return; }
   c.innerHTML = '<div style="padding:0 0 12px"><div style="font-family:var(--font-mono);font-size:10px;color:var(--t2);margin-bottom:14px">' + filtered.length + ' résultat(s) pour "' + q + '"</div>' + renderTable(filtered) + '</div>';
 }
+window.askDashAI    = askDashAI;
+window.setDashQ     = setDashQ;
+window.globalSearch = globalSearch;
