@@ -390,9 +390,9 @@ function applyLang() {
     const el = document.getElementById('nav-'+v);
     if (el) el.textContent = navLabels[i];
   });
-  document.getElementById('sb-mkt-lbl').textContent = fr ? 'MARCHÉS' : 'MARKETS';
-  document.getElementById('sb-seuil-lbl').textContent = fr ? 'SEUIL ALERTE' : 'THRESHOLD';
-  document.getElementById('sb-min-lbl').textContent = fr ? 'marge min.' : 'min. margin';
+  (document.getElementById('sb-mkt-lbl')||{}).textContent = fr ? 'MARCHÉS' : 'MARKETS';
+  (document.getElementById('sb-seuil-lbl')||{}).textContent = fr ? 'SEUIL ALERTE' : 'THRESHOLD';
+  (document.getElementById('sb-min-lbl')||{}).textContent = fr ? 'marge min.' : 'min. margin';
   if(document.getElementById('mkt-list')) renderMarkets();
 }
 
@@ -2750,6 +2750,51 @@ function globalSearch(q) {
   if (filtered.length === 0) { c.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-txt">Aucun résultat pour "' + q + '"</div></div>'; return; }
   c.innerHTML = '<div style="padding:0 0 12px"><div style="font-family:var(--font-mono);font-size:10px;color:var(--t2);margin-bottom:14px">' + filtered.length + ' résultat(s) pour "' + q + '"</div>' + renderTable(filtered) + '</div>';
 }
+function setDashQ(q) {
+  const el = document.getElementById('ai-q-dash');
+  if (el) el.value = q;
+}
+
+function askDashAI() {
+  const q = (document.getElementById('ai-q-dash')?.value || '').toLowerCase();
+  const respEl = document.getElementById('ai-resp-text-dash');
+  if (!respEl) return;
+  respEl.innerHTML = '<span style="color:var(--purple)">Analyse en cours...</span>';
+  const all = allEvs();
+  const top = all.slice().sort((a,b) => b.marge - a.marge)[0] || {};
+  const drops = all.filter(e => hasDrop(e) && dropPct(e) <= -5).length;
+  setTimeout(() => {
+    let resp = '';
+    if (q.includes('presale') || q.includes('amex')) {
+      const ps = all.filter(e => e.presale_code === 'AMEX').slice(0, 3);
+      resp = '<span style="color:var(--teal);font-weight:600">Presale AMEX</span> — ' + (ps.map(e => e.name + ' (+' + e.marge + '%)').join(', ') || 'Aucun trouvé') + '. Action : inscrire sur ticketmaster.fr.';
+    } else if (q.includes('vendre') || q.includes('sell')) {
+      resp = '<span style="color:var(--red);font-weight:600">Signal VENDRE</span> — Peak estimé pour <strong>' + (top.name || 'Champions League') + '</strong> dans 3-5 jours. Prix actuel : ' + (top.resale || 0) + '€.';
+    } else if (q.includes('annulation') || q.includes('impact')) {
+      resp = '<span style="color:var(--gold2);font-weight:600">Analyse impact</span> — Une annulation génère +23% de demande sur les events similaires dans les 30 jours.';
+    } else if (q.includes('top') || q.includes('acheter') || q.includes('buy')) {
+      const buys = all.filter(e => e.marge >= 80).slice(0, 3);
+      resp = '<span style="color:var(--teal);font-weight:600">Top signaux ACHETER</span> — ' + (buys.map((e,i) => (i+1) + '. ' + e.name + ' (+' + e.marge + '%)').join(' · ') || 'Lance un scan');
+    } else {
+      resp = '<span style="color:var(--purple);font-weight:600">Analyse</span> — ' + all.length + ' events. Meilleure : <strong>' + (top.name || '—') + '</strong> (+' + (top.marge || 0) + '%). ' + (drops > 0 ? drops + ' chutes. ' : '') + ((top.marge || 0) >= 100 ? '🟢 ACHETER' : '👁 SURVEILLER') + '.';
+    }
+    respEl.innerHTML = resp;
+  }, 700);
+}
+
+function globalSearch(q) {
+  if (!q) { render(); return; }
+  const lq = q.toLowerCase();
+  const filtered = allEvs().filter(e => e.name.toLowerCase().includes(lq) || (e.sub||'').toLowerCase().includes(lq));
+  const c = document.getElementById('content');
+  if (!c) return;
+  if (filtered.length === 0) {
+    c.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-txt">Aucun résultat pour "' + q + '"</div></div>';
+    return;
+  }
+  c.innerHTML = '<div style="padding:0 0 12px"><div style="font-family:var(--font-mono);font-size:10px;color:var(--t2);margin-bottom:14px">' + filtered.length + ' résultat(s) pour "' + q + '"</div>' + renderTable(filtered) + '</div>';
+}
+
 window.askDashAI    = askDashAI;
 window.setDashQ     = setDashQ;
 window.globalSearch = globalSearch;
