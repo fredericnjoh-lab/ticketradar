@@ -33,9 +33,11 @@ if (!TELEGRAM_CHAT_ID) console.warn('⚠ TELEGRAM_CHAT_ID manquant');
 const SEATGEEK_CLIENT_ID     = process.env.SEATGEEK_CLIENT_ID     || '';
 const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET || '';
 const TICKETMASTER_API_KEY   = process.env.TICKETMASTER_API_KEY   || '';
+const ANTHROPIC_API_KEY      = process.env.ANTHROPIC_API_KEY      || '';
 
 if (!SEATGEEK_CLIENT_ID)   console.warn('⚠ SEATGEEK_CLIENT_ID manquant — /api/scan limité');
 if (!TICKETMASTER_API_KEY) console.warn('⚠ TICKETMASTER_API_KEY manquant — /api/scan limité');
+if (!ANTHROPIC_API_KEY)    console.warn('⚠ ANTHROPIC_API_KEY manquant — /api/ai désactivé');
 
 /* ── Middlewares ── */
 app.use(cors({
@@ -121,9 +123,10 @@ app.get('/api/health', (req, res) => {
     telegram:    TELEGRAM_TOKEN       ? 'configured' : 'missing',
     seatgeek:    SEATGEEK_CLIENT_ID   ? 'configured' : 'missing',
     ticketmaster: TICKETMASTER_API_KEY ? 'configured' : 'missing',
+    anthropic:   ANTHROPIC_API_KEY    ? 'configured' : 'missing',
     sheet:       SHEET_URL            ? 'configured' : 'missing',
     chat_id:     TELEGRAM_CHAT_ID     ? 'configured' : 'missing',
-    endpoints:   ['/api/scan', '/api/scan/top', '/api/notify', '/api/countdown'],
+    endpoints:   ['/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/countdown'],
     timestamp:   new Date().toISOString(),
   });
 });
@@ -858,11 +861,48 @@ function scheduleCountdownCheck() {
 // Démarrer le scheduler
 scheduleCountdownCheck();
 
+/* ══════════════════════════════════════════════
+   AI — Proxy Anthropic API (avoids CORS)
+══════════════════════════════════════════════ */
+
+app.post('/api/ai', async (req, res) => {
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(503).json({ error: 'ANTHROPIC_API_KEY non configuré' });
+  }
+
+  const { question, context } = req.body;
+  if (!question || typeof question !== 'string' || question.length > 500) {
+    return res.status(400).json({ error: 'question requise (max 500 caractères)' });
+  }
+
+  try {
+    const response = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 400,
+      system: `Tu es un expert en revente de billets. Contexte marché actuel: ${(context || '').slice(0, 1000)}. Réponds en 2-3 phrases max, direct et actionnable.`,
+      messages: [{ role: 'user', content: question }],
+    }, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+    });
+
+    const answer = response.data?.content?.[0]?.text || '';
+    res.json({ answer });
+  } catch (err) {
+    console.error('[AI] Erreur:', err.response?.data || err.message);
+    res.status(502).json({ error: 'Erreur API Anthropic: ' + (err.response?.data?.error?.message || err.message) });
+  }
+});
+
 /* ── 404 ── */
 app.use((req, res) => {
-  res.status(404).json({ 
-    error: 'Route non trouvée', 
-    available: ['/api/health', '/api/scan', '/api/scan/top', '/api/notify', '/api/test', '/api/countdown', '/api/countdown/check', '/webhook', '/webhook/setup'] 
+  res.status(404).json({
+    error: 'Route non trouvée',
+    available: ['/api/health', '/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/test', '/api/countdown', '/api/countdown/check', '/webhook', '/webhook/setup']
   });
 });
 

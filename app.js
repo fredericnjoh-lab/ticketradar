@@ -2725,20 +2725,15 @@ async function runDashAI() {
       `${e.name} (${e.marge}% marge, ${e.date || ''})`
     ).join(', ');
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(backendUrl + '/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 400,
-        system: `Tu es un expert en revente de billets. Contexte marché actuel: ${context}. Réponds en 2-3 phrases max, direct et actionnable.`,
-        messages: [{ role: 'user', content: q }]
-      })
+      body: JSON.stringify({ question: q, context })
     });
     const data = await res.json();
-    const text = data.content?.[0]?.text || 'Erreur API';
+    if (!res.ok) throw new Error(data.error || 'Erreur API');
     resp.style.color = 'var(--v6-t2)';
-    resp.textContent = text;
+    resp.textContent = data.answer || 'Pas de réponse';
   } catch(err) {
     resp.style.color   = 'var(--v6-red)';
     resp.textContent   = 'Erreur : ' + err.message;
