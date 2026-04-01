@@ -445,16 +445,48 @@ function setLang(l) {
 
 function applyLang() {
   const fr = S.lang === 'fr';
-  const navLabels = fr
-    ? ['Dashboard','Événements','Kanban','📉 Chutes','+ Ajouter','ROI','Compare','Watchlist','⚙']
-    : ['Dashboard','Events','Kanban','📉 Drops','+ Add','ROI','Compare','Watchlist','⚙'];
-  ['dashboard','events','kanban','drops','add','roi','compare','watchlist','settings'].forEach((v,i) => {
-    const el = document.getElementById('nav-'+v);
-    if (el) el.textContent = navLabels[i];
+  const navMap = {
+    'nav-dash':     fr ? 'Dashboard'      : 'Dashboard',
+    'nav-events':   fr ? 'Événements'     : 'Events',
+    'nav-kanban':   fr ? 'Kanban P&L'     : 'Kanban P&L',
+    'nav-presale':  fr ? 'Presale'        : 'Presale',
+    'nav-ai':       fr ? 'AI Predictor'   : 'AI Predictor',
+    'nav-history':  fr ? 'Historique Prix' : 'Price History',
+    'nav-map':      fr ? 'Carte'          : 'Map',
+    'nav-drops':    fr ? 'Chutes Prix'    : 'Price Drops',
+    'nav-wl':       fr ? 'Watchlist'      : 'Watchlist',
+    'nav-compare':  fr ? 'Comparer'       : 'Compare',
+    'nav-roi':      fr ? 'ROI Calc'       : 'ROI Calc',
+    'nav-add':      fr ? '+ Ajouter'      : '+ Add',
+    'nav-settings': fr ? 'Config ⚙'       : 'Settings ⚙',
+  };
+  Object.entries(navMap).forEach(([id, label]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const dot = el.querySelector('.sbi-dot');
+    if (dot) { el.innerHTML = ''; el.appendChild(dot); el.appendChild(document.createTextNode(' ' + label)); }
+    else el.textContent = label;
+  });
+  // Mobile nav
+  const mobMap = {
+    'mob-dash':     fr ? 'Dashboard' : 'Dashboard',
+    'mob-events':   fr ? 'Events'    : 'Events',
+    'mob-kanban':   fr ? 'Kanban'    : 'Kanban',
+    'mob-ai':       fr ? 'IA'        : 'AI',
+    'mob-settings': fr ? 'Config'    : 'Settings',
+  };
+  Object.entries(mobMap).forEach(([id, label]) => {
+    const el = document.getElementById(id);
+    if (el) { const lbl = el.querySelector('.mnav-label'); if (lbl) lbl.textContent = label; }
   });
   (document.getElementById('sb-mkt-lbl')||{}).textContent = fr ? 'MARCHÉS' : 'MARKETS';
   (document.getElementById('sb-seuil-lbl')||{}).textContent = fr ? 'SEUIL ALERTE' : 'THRESHOLD';
   (document.getElementById('sb-min-lbl')||{}).textContent = fr ? 'marge min.' : 'min. margin';
+  // Topbar
+  const scanLbl = document.getElementById('scan-lbl');
+  if (scanLbl && scanLbl.textContent !== (fr ? 'Scan...' : 'Scanning...')) scanLbl.textContent = fr ? 'Scanner' : 'Scan now';
+  const searchInput = document.getElementById('global-search');
+  if (searchInput) searchInput.placeholder = fr ? 'Rechercher...' : 'Search events...';
   if(document.getElementById('mkt-list')) renderMarkets();
 }
 
@@ -790,7 +822,7 @@ function renderKanban(c) {
                         <div style="font-size:12px;font-weight:600;font-family:var(--font-mono)">${k.face}\u20ac</div>
                       </div>
                       <div style="background:var(--bg2);border:1px solid var(--goldbdr);border-radius:4px;padding:5px 7px">
-                        <div style="font-size:8px;color:var(--gold2);font-family:var(--font-mono)">REVENTE ✏</div>
+                        <div style="font-size:8px;color:var(--gold2);font-family:var(--font-mono)">${fr?'REVENTE':'RESALE'} ✏</div>
                         <div style="display:flex;align-items:center;gap:3px">
                           <input
                             type="number"
@@ -805,7 +837,7 @@ function renderKanban(c) {
                       </div>
                     </div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:5px 7px;background:var(--bg2);border-radius:4px">
-                      <span style="font-size:8.5px;color:var(--t3);font-family:var(--font-mono)">GAIN NET</span>
+                      <span style="font-size:8.5px;color:var(--t3);font-family:var(--font-mono)">${fr?'GAIN NET':'NET GAIN'}</span>
                       <span style="font-size:13px;font-weight:700;font-family:var(--font-mono);color:${gainCol}">${netGain>=0?'+':''}${netGain}\u20ac</span>
                     </div>
                     <div class="kc-actions" style="margin-top:8px">
@@ -1398,7 +1430,7 @@ function renderWatchlist(c) {
     </div>
     <div class="card">
       <div class="card-head">
-        <span class="card-title">Favoris ★</span>
+        <span class="card-title">${fr?'Favoris':'Favorites'} ★</span>
       </div>
       ${buildTable(all.filter(e=>e.starred))}
     </div>`;
@@ -1406,7 +1438,7 @@ function renderWatchlist(c) {
 
 function addWl() {
   const v = document.getElementById('wl-inp').value.trim();
-  if (v && !S.wl.includes(v)) { S.wl.push(v); saveState(); toast('"'+v+'" ajouté à la watchlist','★'); }
+  if (v && !S.wl.includes(v)) { S.wl.push(v); saveState(); toast(S.lang==='fr'?'"'+v+'" ajouté à la watchlist':'"'+v+'" added to watchlist','★'); }
   render();
 }
 
@@ -1503,21 +1535,21 @@ function saveTgConfig() {
       if (reg.active) reg.active.postMessage({type:'CONFIG',payload:{sheetUrl:S.sheetUrl,seuil:S.seuil,tgToken:S.tgToken,tgChatId:S.tgChatId}});
     });
   }
-  toast(S.lang==='fr'?'Telegram sauvegardé ✓ — Auto-scan actif !':'Telegram saved ✓ — Auto-scan active!','📱');
+  toast(S.lang==='fr'?'Telegram sauvegardé ✓':'Telegram saved ✓','📱');
 }
 
 async function testTgDirect() {
   const token = document.getElementById('tg-token-input')?.value.trim()||S.tgToken;
   const chatid = document.getElementById('tg-chatid-input')?.value.trim()||S.tgChatId;
-  if (!token||!chatid) { toast('Renseigne token et chat ID','⚠'); return; }
+  if (!token||!chatid) { toast(S.lang==='fr'?'Renseigne token et chat ID':'Enter token and chat ID','⚠'); return; }
   try {
     const r = await fetch('https://api.telegram.org/bot'+token+'/sendMessage', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({chat_id:chatid, text:'🧪 TicketRadar v5 — Test OK ! 🎫'})
     });
     const d = await r.json();
-    if (d.ok) toast('✓ Message Telegram reçu !','📱');
-    else toast('Erreur : '+d.description,'⚠');
+    if (d.ok) toast(S.lang==='fr'?'✓ Message Telegram reçu !':'✓ Telegram message received!','📱');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+d.description,'⚠');
   } catch(e) { toast('Erreur : '+e.message,'⚠'); }
 }
 
@@ -1528,7 +1560,7 @@ function saveSheetUrl() {
 
 function saveApiUrl() {
   const input = document.getElementById('api-url-input');
-  if (input) { S.apiUrl = input.value.trim(); saveState(); toast(S.lang==='fr'?'API sauvegardée':'API saved','✓'); render(); }
+  if (input) { S.apiUrl = input.value.trim(); saveState(); toast(S.lang==='fr'?'API sauvegardée ✓':'API saved ✓','✓'); render(); }
 }
 
 async function testApi() {
@@ -1537,7 +1569,7 @@ async function testApi() {
     const res = await fetch(S.apiUrl+'/health');
     const d = await res.json();
     toast('API OK — '+d.status,'✓');
-  } catch(e) { toast('API non joignable','✕'); }
+  } catch(e) { toast(S.lang==='fr'?'API non joignable':'API unreachable','✕'); }
 }
 
 /* ══════════════════════════════════════════════
@@ -2022,7 +2054,7 @@ async function autoDiscoverEvents() {
         const marge = estimatedFace > 0 ? Math.round(((net - estimatedFace) / estimatedFace) * 100) : 0;
         if (marge < 30) return;
         discovered.push({
-          name: ev.title?.slice(0, 50) || 'Event inconnu',
+          name: ev.title?.slice(0, 50) || (S.lang==='fr'?'Event inconnu':'Unknown event'),
           date: ev.datetime_local?.split('T')[0] || '',
           platform: 'SeatGeek',
           face: estimatedFace,
@@ -2228,8 +2260,9 @@ function predictPrice(snapshots, daysAhead = 7) {
 }
 
 function getSignal(ev, snapshots) {
+  const fr = S.lang === 'fr';
   if (!snapshots || snapshots.length < 2) {
-    return { signal: 'DONNÉES INSUFFISANTES', color: 'var(--t3)', icon: '⏳', advice: 'Lance plusieurs scans pour accumuler des données', confidence: 0 };
+    return { signal: fr ? 'DONNÉES INSUFFISANTES' : 'INSUFFICIENT DATA', color: 'var(--t3)', icon: '⏳', advice: fr ? 'Lance plusieurs scans pour accumuler des données' : 'Run multiple scans to accumulate data', confidence: 0 };
   }
   const pred = predictPrice(snapshots, 7);
   if (!pred) return null;
@@ -2252,20 +2285,20 @@ function getSignal(ev, snapshots) {
 
   // Signal logic
   if (daysLeft !== null && daysLeft <= 3) {
-    return { signal: 'VENDRE MAINTENANT', color: 'var(--red)', icon: '🚨', advice: `Event dans ${daysLeft}j — c'est maintenant ou jamais !`, confidence, predicted: pred.predicted, pctChange };
+    return { signal: fr ? 'VENDRE MAINTENANT' : 'SELL NOW', color: 'var(--red)', icon: '🚨', advice: fr ? `Event dans ${daysLeft}j — c'est maintenant ou jamais !` : `Event in ${daysLeft}d — now or never!`, confidence, predicted: pred.predicted, pctChange };
   }
   if (pctChange >= 8 && r2 > 0.4) {
-    return { signal: 'ACHETER MAINTENANT', color: 'var(--green)', icon: '🟢', advice: `Prix en hausse +${pctChange}% prévu sur 7j — bon moment d'acheter`, confidence, predicted: pred.predicted, pctChange };
+    return { signal: fr ? 'ACHETER MAINTENANT' : 'BUY NOW', color: 'var(--green)', icon: '🟢', advice: fr ? `Prix en hausse +${pctChange}% prévu sur 7j — bon moment d'acheter` : `Price rising +${pctChange}% predicted over 7d — good time to buy`, confidence, predicted: pred.predicted, pctChange };
   }
   if (pctChange <= -5 && r2 > 0.4) {
     if (recentSlope < 0) {
-      return { signal: 'ATTENDRE', color: 'var(--blue)', icon: '⏳', advice: `Prix en baisse ${pctChange}% — attends le bottom dans ~${Math.abs(Math.round(pred.current/slope))}j`, confidence, predicted: pred.predicted, pctChange };
+      return { signal: fr ? 'ATTENDRE' : 'WAIT', color: 'var(--blue)', icon: '⏳', advice: fr ? `Prix en baisse ${pctChange}% — attends le bottom dans ~${Math.abs(Math.round(pred.current/slope))}j` : `Price dropping ${pctChange}% — wait for bottom in ~${Math.abs(Math.round(pred.current/slope))}d`, confidence, predicted: pred.predicted, pctChange };
     }
   }
   if (daysLeft !== null && daysLeft <= 14 && pctChange >= 3) {
-    return { signal: 'VENDRE BIENTÔT', color: 'var(--gold2)', icon: '🟡', advice: `Peak proche — pense à vendre avant J-7`, confidence, predicted: pred.predicted, pctChange };
+    return { signal: fr ? 'VENDRE BIENTÔT' : 'SELL SOON', color: 'var(--gold2)', icon: '🟡', advice: fr ? 'Peak proche — pense à vendre avant J-7' : 'Peak approaching — consider selling before D-7', confidence, predicted: pred.predicted, pctChange };
   }
-  return { signal: 'SURVEILLER', color: 'var(--t2)', icon: '👁', advice: `Tendance neutre — accumule des données`, confidence, predicted: pred.predicted, pctChange };
+  return { signal: fr ? 'SURVEILLER' : 'WATCH', color: 'var(--t2)', icon: '👁', advice: fr ? 'Tendance neutre — accumule des données' : 'Neutral trend — accumulate data', confidence, predicted: pred.predicted, pctChange };
 }
 
 function renderAIPredictor(c) {
@@ -2283,7 +2316,9 @@ function renderAIPredictor(c) {
     }
   });
   // Sort: urgent signals first
-  const signalOrder = {'VENDRE MAINTENANT':0,'VENDRE BIENTÔT':1,'ACHETER MAINTENANT':2,'ATTENDRE':3,'SURVEILLER':4,'DONNÉES INSUFFISANTES':5};
+  const signalOrder = fr
+    ? {'VENDRE MAINTENANT':0,'VENDRE BIENTÔT':1,'ACHETER MAINTENANT':2,'ATTENDRE':3,'SURVEILLER':4,'DONNÉES INSUFFISANTES':5}
+    : {'SELL NOW':0,'SELL SOON':1,'BUY NOW':2,'WAIT':3,'WATCH':4,'INSUFFICIENT DATA':5};
   predictions.sort((a,b) => (signalOrder[a.signal.signal]||9) - (signalOrder[b.signal.signal]||9));
 
   c.innerHTML = `
@@ -2341,12 +2376,12 @@ function renderAIPredictor(c) {
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 18px">
         ${[
-          {s:'ACHETER MAINTENANT', icon:'🟢', col:'var(--green)'},
-          {s:'VENDRE MAINTENANT',  icon:'🚨', col:'var(--red)'},
-          {s:'VENDRE BIENTÔT',     icon:'🟡', col:'var(--gold2)'},
-          {s:'ATTENDRE',           icon:'⏳', col:'var(--blue)'},
-          {s:'SURVEILLER',         icon:'👁', col:'var(--t2)'},
-          {s:'DONNÉES INSUFFISANTES', icon:'⏳', col:'var(--t4)'},
+          {s:fr?'ACHETER MAINTENANT':'BUY NOW',       icon:'🟢', col:'var(--green)'},
+          {s:fr?'VENDRE MAINTENANT':'SELL NOW',        icon:'🚨', col:'var(--red)'},
+          {s:fr?'VENDRE BIENTÔT':'SELL SOON',          icon:'🟡', col:'var(--gold2)'},
+          {s:fr?'ATTENDRE':'WAIT',                     icon:'⏳', col:'var(--blue)'},
+          {s:fr?'SURVEILLER':'WATCH',                  icon:'👁', col:'var(--t2)'},
+          {s:fr?'DONNÉES INSUFFISANTES':'INSUFFICIENT DATA', icon:'⏳', col:'var(--t4)'},
         ].map(({s, icon, col}) => {
           const count = predictions.filter(p => p.signal.signal === s).length;
           return `
@@ -2365,15 +2400,19 @@ function renderAIPredictor(c) {
    Countdown + alertes Telegram avant presale
 ══════════════════════════════════════════════ */
 
-const PRESALE_SOURCES = {
-  'AMEX':       { label: 'Amex Presale',         icon: '💳', color: '#2DD4A0', tip: 'Carte American Express requise' },
-  'SPOTIFY':    { label: 'Spotify Fan Presale',   icon: '🎵', color: '#1DB954', tip: "S'abonner à l'artiste sur Spotify" },
-  'APPLE':      { label: 'Apple Music Presale',   icon: '🎵', color: '#FC3C44', tip: "Suivre l'artiste sur Apple Music" },
-  'VERIFIED':   { label: 'Verified Fan',          icon: '✅', color: '#5BA4F5', tip: 'Inscription Ticketmaster Verified Fan' },
-  'NEWSLETTER': { label: 'Newsletter artiste',    icon: '📧', color: '#A78BFA', tip: "S'inscrire sur le site officiel" },
-  'VENUE':      { label: 'Venue Presale',         icon: '🏟️', color: '#D4A843', tip: 'Abonné email de la salle' },
-  'FANCLUB':    { label: 'Fan Club',              icon: '⭐', color: '#FF5E5E', tip: 'Membre du fan club officiel' },
-};
+function getPresaleSources() {
+  const fr = S.lang === 'fr';
+  return {
+    'AMEX':       { label: 'Amex Presale',         icon: '💳', color: '#2DD4A0', tip: fr ? 'Carte American Express requise' : 'American Express card required' },
+    'SPOTIFY':    { label: 'Spotify Fan Presale',   icon: '🎵', color: '#1DB954', tip: fr ? "S'abonner à l'artiste sur Spotify" : 'Follow the artist on Spotify' },
+    'APPLE':      { label: 'Apple Music Presale',   icon: '🎵', color: '#FC3C44', tip: fr ? "Suivre l'artiste sur Apple Music" : 'Follow the artist on Apple Music' },
+    'VERIFIED':   { label: 'Verified Fan',          icon: '✅', color: '#5BA4F5', tip: fr ? 'Inscription Ticketmaster Verified Fan' : 'Register for Ticketmaster Verified Fan' },
+    'NEWSLETTER': { label: fr ? 'Newsletter artiste' : 'Artist Newsletter', icon: '📧', color: '#A78BFA', tip: fr ? "S'inscrire sur le site officiel" : 'Sign up on official website' },
+    'VENUE':      { label: 'Venue Presale',         icon: '🏟️', color: '#D4A843', tip: fr ? 'Abonné email de la salle' : 'Venue email subscriber' },
+    'FANCLUB':    { label: 'Fan Club',              icon: '⭐', color: '#FF5E5E', tip: fr ? 'Membre du fan club officiel' : 'Official fan club member' },
+  };
+}
+const PRESALE_SOURCES = getPresaleSources();
 
 function getDaysUntilPresale(presaleDateStr) {
   if (!presaleDateStr) return null;
@@ -2384,14 +2423,15 @@ function getDaysUntilPresale(presaleDateStr) {
 }
 
 function getPresaleStatus(ev) {
+  const fr = S.lang === 'fr';
   const days = getDaysUntilPresale(ev.presale_date || ev.presale);
   if (days === null) return null;
-  if (days < 0)  return { status: 'TERMINÉE',   color: 'var(--t4)',    icon: '⏹️', days };
-  if (days === 0) return { status: "AUJOURD'HUI", color: 'var(--red)',  icon: '🚨', days };
-  if (days <= 1)  return { status: 'DEMAIN',      color: 'var(--red)',   icon: '🔴', days };
-  if (days <= 3)  return { status: `J-${days}`,   color: 'var(--gold2)', icon: '🟡', days };
-  if (days <= 7)  return { status: `J-${days}`,   color: 'var(--green)', icon: '🟢', days };
-  return           { status: `J-${days}`,          color: 'var(--t2)',    icon: '📅', days };
+  if (days < 0)  return { status: fr ? 'TERMINÉE' : 'ENDED',      color: 'var(--t4)',    icon: '⏹️', days };
+  if (days === 0) return { status: fr ? "AUJOURD'HUI" : 'TODAY',   color: 'var(--red)',   icon: '🚨', days };
+  if (days <= 1)  return { status: fr ? 'DEMAIN' : 'TOMORROW',     color: 'var(--red)',   icon: '🔴', days };
+  if (days <= 3)  return { status: `D-${days}`,                    color: 'var(--gold2)', icon: '🟡', days };
+  if (days <= 7)  return { status: `D-${days}`,                    color: 'var(--green)', icon: '🟢', days };
+  return           { status: `D-${days}`,                           color: 'var(--t2)',    icon: '📅', days };
 }
 
 async function sendPresaleAlerts(events) {
@@ -2448,6 +2488,7 @@ async function sendPresaleAlerts(events) {
 
 function renderPresaleTracker(c) {
   const fr = S.lang === 'fr';
+  const PRESALE_SOURCES = getPresaleSources();
   const evs = allEvs();
 
   // Events with presale info
@@ -2534,7 +2575,7 @@ function renderPresaleTracker(c) {
             <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
               <button onclick="openPlatform(${ev.id})"
                 style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
-                🛒 Acheter
+                🛒 ${fr?'Acheter':'Buy'}
               </button>
             </div>
           </div>`;
