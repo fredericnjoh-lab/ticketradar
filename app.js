@@ -321,7 +321,7 @@ async function scanLiveData(query = '', seuil = 0) {
         match.live   = true;
         match.source = live.source;
         updated++;
-      } else if (live.face > 0 && live.marge > 0 && !existingNames.has(live.name.toLowerCase().slice(0,20))) {
+      } else if (((live.face > 0 && live.marge > 0) || live.discovered === true) && !existingNames.has(live.name.toLowerCase().slice(0,20))) {
         // Add new event discovered via API
         const newEv = {
           ...live,
