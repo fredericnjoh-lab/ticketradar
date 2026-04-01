@@ -67,6 +67,11 @@ const S = {
   sheetEvents: [], loadingSheet: false, sheetLoaded: false, sheetError: '',
   notifStatus: localStorage.getItem('tr-notif') || 'unknown',
   liveData: {}, charts: {},
+  goals: JSON.parse(localStorage.getItem('tr-goals') || '[]'),
+  goalsNextId: parseInt(localStorage.getItem('tr-goals-nextid')) || 1,
+  goalFilter: 'all',
+  goalAiLoading: false,
+  goalAiResponse: '',
 };
 
 // DOM manipulation moved to init() below
@@ -102,6 +107,8 @@ function saveState() {
   localStorage.setItem('tr-tg-token', S.tgToken);
   localStorage.setItem('tr-tg-chatid', S.tgChatId);
   localStorage.setItem('tr-api-url', S.apiUrl);
+  localStorage.setItem('tr-goals', JSON.stringify(S.goals));
+  localStorage.setItem('tr-goals-nextid', S.goalsNextId);
   // Sync profile to Supabase
   const user = window.currentUser;
   if (user && typeof sbUpdateProfile === 'function') {
@@ -946,6 +953,7 @@ function render() {
   else if (S.view === 'presale') renderPresaleTracker(c);
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
+  else if (S.view === 'goals') renderGoals(c);
   else if (S.view === 'settings') renderSettings(c);
 }
 
@@ -1440,6 +1448,392 @@ function addWl() {
   const v = document.getElementById('wl-inp').value.trim();
   if (v && !S.wl.includes(v)) { S.wl.push(v); saveState(); toast(S.lang==='fr'?'"'+v+'" ajouté à la watchlist':'"'+v+'" added to watchlist','★'); }
   render();
+}
+
+/* ══════════════════════════════════════════════
+   AI GOAL TRACKER
+══════════════════════════════════════════════ */
+const GOAL_CATEGORIES = {
+  finance:  { icon: '💰', color: 'var(--green)',  labelFr: 'Finance',      labelEn: 'Finance' },
+  career:   { icon: '💼', color: 'var(--blue)',   labelFr: 'Carrière',     labelEn: 'Career' },
+  health:   { icon: '🏋️', color: 'var(--red)',    labelFr: 'Santé',        labelEn: 'Health' },
+  learning: { icon: '📚', color: 'var(--purple)', labelFr: 'Apprentissage',labelEn: 'Learning' },
+  personal: { icon: '🎯', color: 'var(--gold2)',  labelFr: 'Personnel',    labelEn: 'Personal' },
+  social:   { icon: '🤝', color: 'var(--teal)',   labelFr: 'Social',       labelEn: 'Social' },
+};
+
+function addGoal() {
+  const name     = document.getElementById('goal-name')?.value?.trim();
+  const desc     = document.getElementById('goal-desc')?.value?.trim();
+  const category = document.getElementById('goal-cat')?.value || 'personal';
+  const deadline = document.getElementById('goal-deadline')?.value || '';
+  const priority = document.getElementById('goal-priority')?.value || 'medium';
+  if (!name) { toast(S.lang==='fr'?'Donne un nom à ton objectif':'Give your goal a name','⚠️'); return; }
+
+  const goal = {
+    id: S.goalsNextId++,
+    name,
+    description: desc,
+    category,
+    deadline,
+    priority,
+    progress: 0,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    milestones: [],
+    aiAdvice: '',
+  };
+  S.goals.push(goal);
+  saveState();
+  render();
+  toast(S.lang==='fr'?'Objectif ajouté !':'Goal added!','🎯');
+}
+
+function deleteGoal(id) {
+  S.goals = S.goals.filter(g => g.id !== id);
+  saveState(); render();
+  toast(S.lang==='fr'?'Objectif supprimé':'Goal deleted','🗑');
+}
+
+function updateGoalProgress(id, val) {
+  const g = S.goals.find(g => g.id === id);
+  if (!g) return;
+  g.progress = Math.min(100, Math.max(0, parseInt(val)));
+  g.updatedAt = new Date().toISOString();
+  if (g.progress === 100 && g.status === 'active') {
+    g.status = 'completed';
+    g.completedAt = new Date().toISOString();
+    toast(S.lang==='fr'?'Bravo ! Objectif atteint !':'Congrats! Goal achieved!','🏆');
+  }
+  saveState(); render();
+}
+
+function toggleGoalStatus(id) {
+  const g = S.goals.find(g => g.id === id);
+  if (!g) return;
+  if (g.status === 'completed') {
+    g.status = 'active'; g.progress = Math.min(g.progress, 99); g.completedAt = null;
+  } else if (g.status === 'active') {
+    g.status = 'paused';
+  } else {
+    g.status = 'active';
+  }
+  g.updatedAt = new Date().toISOString();
+  saveState(); render();
+}
+
+function addMilestone(goalId) {
+  const input = document.getElementById('ms-input-'+goalId);
+  if (!input || !input.value.trim()) return;
+  const g = S.goals.find(g => g.id === goalId);
+  if (!g) return;
+  g.milestones.push({ text: input.value.trim(), done: false, createdAt: new Date().toISOString() });
+  g.updatedAt = new Date().toISOString();
+  saveState(); render();
+}
+
+function toggleMilestone(goalId, msIdx) {
+  const g = S.goals.find(g => g.id === goalId);
+  if (!g || !g.milestones[msIdx]) return;
+  g.milestones[msIdx].done = !g.milestones[msIdx].done;
+  // Auto-update progress based on milestones
+  const total = g.milestones.length;
+  if (total > 0) {
+    g.progress = Math.round((g.milestones.filter(m => m.done).length / total) * 100);
+    if (g.progress === 100 && g.status === 'active') {
+      g.status = 'completed'; g.completedAt = new Date().toISOString();
+      toast(S.lang==='fr'?'Bravo ! Objectif atteint !':'Congrats! Goal achieved!','🏆');
+    }
+  }
+  g.updatedAt = new Date().toISOString();
+  saveState(); render();
+}
+
+function deleteMilestone(goalId, msIdx) {
+  const g = S.goals.find(g => g.id === goalId);
+  if (!g) return;
+  g.milestones.splice(msIdx, 1);
+  const total = g.milestones.length;
+  if (total > 0) g.progress = Math.round((g.milestones.filter(m => m.done).length / total) * 100);
+  g.updatedAt = new Date().toISOString();
+  saveState(); render();
+}
+
+async function askGoalAI(goalId) {
+  const g = S.goals.find(g => g.id === goalId);
+  if (!g) return;
+  const fr = S.lang === 'fr';
+  S.goalAiLoading = true; render();
+
+  const allGoals = S.goals.map(x => `${x.name} (${x.category}, ${x.progress}%, ${x.status})`).join('; ');
+  const milestones = g.milestones.map(m => `${m.done?'✓':'○'} ${m.text}`).join(', ');
+  const question = fr
+    ? `Mon objectif : "${g.name}" — ${g.description || 'pas de description'}. Catégorie: ${g.category}. Progression: ${g.progress}%. Deadline: ${g.deadline || 'aucune'}. Priorité: ${g.priority}. Étapes: ${milestones || 'aucune'}. Tous mes objectifs: ${allGoals}. Donne-moi 3 conseils concrets et motivants pour avancer sur cet objectif. Sois direct et actionnable.`
+    : `My goal: "${g.name}" — ${g.description || 'no description'}. Category: ${g.category}. Progress: ${g.progress}%. Deadline: ${g.deadline || 'none'}. Priority: ${g.priority}. Milestones: ${milestones || 'none'}. All my goals: ${allGoals}. Give me 3 concrete, motivating tips to make progress on this goal. Be direct and actionable.`;
+
+  try {
+    const res = await fetch((S.apiUrl || CONFIG.BACKEND_URL) + '/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, context: 'Goal tracker AI coach' }),
+    });
+    const data = await res.json();
+    g.aiAdvice = data.answer || (fr ? 'Pas de réponse' : 'No response');
+    g.aiAdviceAt = new Date().toISOString();
+  } catch (e) {
+    g.aiAdvice = fr ? 'Erreur de connexion au coach IA' : 'AI coach connection error';
+  }
+  S.goalAiLoading = false;
+  saveState(); render();
+}
+
+async function askGoalAIGlobal() {
+  const fr = S.lang === 'fr';
+  S.goalAiLoading = true; render();
+
+  const allGoals = S.goals.map(x => `${x.name} (cat:${x.category}, progress:${x.progress}%, status:${x.status}, priority:${x.priority}, deadline:${x.deadline||'none'}, milestones:${x.milestones.length})`).join('; ');
+  const completed = S.goals.filter(g => g.status === 'completed').length;
+  const active = S.goals.filter(g => g.status === 'active').length;
+
+  const question = fr
+    ? `Voici tous mes objectifs : ${allGoals || 'aucun'}. ${completed} complétés, ${active} en cours. Fais-moi un bilan global : quels objectifs prioriser, que améliorer, et donne-moi un plan d'action pour la semaine. Sois concis, motivant et direct.`
+    : `Here are all my goals: ${allGoals || 'none'}. ${completed} completed, ${active} active. Give me an overall assessment: which goals to prioritize, what to improve, and a weekly action plan. Be concise, motivating, and direct.`;
+
+  try {
+    const res = await fetch((S.apiUrl || CONFIG.BACKEND_URL) + '/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, context: 'Goal tracker AI coach — global assessment' }),
+    });
+    const data = await res.json();
+    S.goalAiResponse = data.answer || (fr ? 'Pas de réponse' : 'No response');
+  } catch (e) {
+    S.goalAiResponse = fr ? 'Erreur de connexion au coach IA' : 'AI coach connection error';
+  }
+  S.goalAiLoading = false;
+  saveState(); render();
+}
+
+function getGoalStats() {
+  const goals = S.goals;
+  const total = goals.length;
+  const completed = goals.filter(g => g.status === 'completed').length;
+  const active = goals.filter(g => g.status === 'active').length;
+  const paused = goals.filter(g => g.status === 'paused').length;
+  const avgProgress = total ? Math.round(goals.reduce((a, g) => a + g.progress, 0) / total) : 0;
+
+  // Streak: consecutive days with at least one goal updated
+  const today = new Date(); today.setHours(0,0,0,0);
+  let streak = 0;
+  for (let d = 0; d < 365; d++) {
+    const day = new Date(today); day.setDate(day.getDate() - d);
+    const dayStr = day.toISOString().slice(0, 10);
+    const hasUpdate = goals.some(g => g.updatedAt && g.updatedAt.slice(0, 10) === dayStr);
+    if (hasUpdate) streak++; else break;
+  }
+
+  // Overdue goals
+  const overdue = goals.filter(g => g.status === 'active' && g.deadline && new Date(g.deadline) < new Date()).length;
+
+  return { total, completed, active, paused, avgProgress, streak, overdue };
+}
+
+function getGoalDaysLeft(g) {
+  if (!g.deadline) return null;
+  const diff = Math.ceil((new Date(g.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+function renderGoals(c) {
+  const fr = S.lang === 'fr';
+  const stats = getGoalStats();
+  const filter = S.goalFilter || 'all';
+  const goals = S.goals.filter(g => {
+    if (filter === 'all') return true;
+    if (filter === 'active') return g.status === 'active';
+    if (filter === 'completed') return g.status === 'completed';
+    if (filter === 'paused') return g.status === 'paused';
+    return g.category === filter;
+  }).sort((a, b) => {
+    // Active first, then by priority, then by deadline
+    const so = { active: 0, paused: 1, completed: 2 };
+    if (so[a.status] !== so[b.status]) return so[a.status] - so[b.status];
+    const po = { high: 0, medium: 1, low: 2 };
+    return (po[a.priority] || 1) - (po[b.priority] || 1);
+  });
+
+  const catLabel = (cat) => GOAL_CATEGORIES[cat] ? (fr ? GOAL_CATEGORIES[cat].labelFr : GOAL_CATEGORIES[cat].labelEn) : cat;
+  const catIcon = (cat) => GOAL_CATEGORIES[cat]?.icon || '🎯';
+  const catColor = (cat) => GOAL_CATEGORIES[cat]?.color || 'var(--t2)';
+  const prioColor = (p) => p === 'high' ? 'var(--red)' : p === 'medium' ? 'var(--gold2)' : 'var(--t3)';
+  const prioLabel = (p) => fr ? (p === 'high' ? 'Haute' : p === 'medium' ? 'Moyenne' : 'Basse') : (p === 'high' ? 'High' : p === 'medium' ? 'Medium' : 'Low');
+  const statusIcon = (s) => s === 'completed' ? '✅' : s === 'paused' ? '⏸' : '🔵';
+
+  c.innerHTML = `
+    <!-- Stats cards -->
+    <div class="goal-stats-grid">
+      <div class="goal-stat-card">
+        <div class="goal-stat-icon" style="background:var(--greenbg);color:var(--green)">🎯</div>
+        <div class="goal-stat-info">
+          <div class="goal-stat-val">${stats.total}</div>
+          <div class="goal-stat-lbl">${fr?'Objectifs total':'Total goals'}</div>
+        </div>
+      </div>
+      <div class="goal-stat-card">
+        <div class="goal-stat-icon" style="background:var(--greenbg);color:var(--green)">✅</div>
+        <div class="goal-stat-info">
+          <div class="goal-stat-val" style="color:var(--green)">${stats.completed}</div>
+          <div class="goal-stat-lbl">${fr?'Complétés':'Completed'}</div>
+        </div>
+      </div>
+      <div class="goal-stat-card">
+        <div class="goal-stat-icon" style="background:var(--goldbg);color:var(--gold2)">📊</div>
+        <div class="goal-stat-info">
+          <div class="goal-stat-val" style="color:var(--gold2)">${stats.avgProgress}%</div>
+          <div class="goal-stat-lbl">${fr?'Progression moy.':'Avg progress'}</div>
+        </div>
+      </div>
+      <div class="goal-stat-card">
+        <div class="goal-stat-icon" style="background:rgba(168,85,247,.12);color:var(--purple)">🔥</div>
+        <div class="goal-stat-info">
+          <div class="goal-stat-val" style="color:var(--purple)">${stats.streak}j</div>
+          <div class="goal-stat-lbl">${fr?'Série active':'Active streak'}</div>
+        </div>
+      </div>
+      ${stats.overdue > 0 ? `<div class="goal-stat-card" style="border-color:var(--red)">
+        <div class="goal-stat-icon" style="background:rgba(255,94,94,.12);color:var(--red)">⚠️</div>
+        <div class="goal-stat-info">
+          <div class="goal-stat-val" style="color:var(--red)">${stats.overdue}</div>
+          <div class="goal-stat-lbl">${fr?'En retard':'Overdue'}</div>
+        </div>
+      </div>` : ''}
+    </div>
+
+    <!-- AI Global Coach -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🤖 ${fr?'Coach IA Global':'AI Global Coach'}</span>
+        <button class="goal-ai-btn" onclick="askGoalAIGlobal()" ${S.goalAiLoading?'disabled':''}>
+          ${S.goalAiLoading ? (fr?'Analyse...':'Analyzing...') : (fr?'Bilan IA':'AI Assessment')}
+        </button>
+      </div>
+      ${S.goalAiResponse ? `<div class="goal-ai-response">${S.goalAiResponse.replace(/\n/g,'<br>')}</div>` : `
+        <div style="padding:14px 18px;font-size:11px;color:var(--t3);font-family:var(--font-mono)">
+          ${fr?'Clique sur "Bilan IA" pour obtenir un coaching personnalisé basé sur tous tes objectifs.':'Click "AI Assessment" for personalized coaching based on all your goals.'}
+        </div>
+      `}
+    </div>
+
+    <!-- Add goal form -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">➕ ${fr?'Nouvel objectif':'New goal'}</span>
+      </div>
+      <div class="goal-form">
+        <div class="goal-form-row">
+          <input class="form-input" id="goal-name" placeholder="${fr?'Nom de l\'objectif *':'Goal name *'}" style="flex:2">
+          <select class="form-select" id="goal-cat" style="flex:1">
+            ${Object.entries(GOAL_CATEGORIES).map(([k,v])=>`<option value="${k}">${v.icon} ${fr?v.labelFr:v.labelEn}</option>`).join('')}
+          </select>
+        </div>
+        <div class="goal-form-row">
+          <input class="form-input" id="goal-desc" placeholder="${fr?'Description (optionnel)':'Description (optional)'}" style="flex:2">
+          <input class="form-input" id="goal-deadline" type="date" style="flex:1">
+          <select class="form-select" id="goal-priority" style="flex:0.7">
+            <option value="high">${fr?'🔴 Haute':'🔴 High'}</option>
+            <option value="medium" selected>${fr?'🟡 Moyenne':'🟡 Medium'}</option>
+            <option value="low">${fr?'🟢 Basse':'🟢 Low'}</option>
+          </select>
+        </div>
+        <button class="goal-add-btn" onclick="addGoal()">🎯 ${fr?'Ajouter l\'objectif':'Add goal'}</button>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="goal-filters">
+        ${[
+          {k:'all',      l:fr?'Tous':'All'},
+          {k:'active',   l:fr?'En cours':'Active'},
+          {k:'completed',l:fr?'Complétés':'Completed'},
+          {k:'paused',   l:fr?'En pause':'Paused'},
+        ].map(f=>`<button class="fchip ${filter===f.k?'on':''}" onclick="S.goalFilter='${f.k}';render()">${f.l}</button>`).join('')}
+        <div class="vsep"></div>
+        ${Object.entries(GOAL_CATEGORIES).map(([k,v])=>`<button class="fchip ${filter===k?'on':''}" onclick="S.goalFilter='${k}';render()">${v.icon}</button>`).join('')}
+      </div>
+    </div>
+
+    <!-- Goals list -->
+    ${goals.length === 0 ? `
+      <div class="card">
+        <div class="empty">
+          <div class="empty-icon">🎯</div>
+          <div class="empty-txt">${fr?'Aucun objectif trouvé. Ajoute ton premier objectif ci-dessus !':'No goals found. Add your first goal above!'}</div>
+        </div>
+      </div>` :
+      goals.map(g => {
+        const daysLeft = getGoalDaysLeft(g);
+        const isOverdue = daysLeft !== null && daysLeft < 0 && g.status === 'active';
+        const cat = GOAL_CATEGORIES[g.category] || GOAL_CATEGORIES.personal;
+        return `
+        <div class="goal-card ${g.status === 'completed' ? 'goal-completed' : ''} ${isOverdue ? 'goal-overdue' : ''}">
+          <div class="goal-card-header">
+            <div class="goal-card-left">
+              <div class="goal-cat-badge" style="background:${catColor(g.category)}15;color:${catColor(g.category)};border:1px solid ${catColor(g.category)}40">
+                ${catIcon(g.category)} ${catLabel(g.category)}
+              </div>
+              <span class="goal-prio-badge" style="color:${prioColor(g.priority)}">${prioLabel(g.priority)}</span>
+            </div>
+            <div class="goal-card-actions">
+              <button class="goal-action-btn" onclick="toggleGoalStatus(${g.id})" title="${fr?'Changer statut':'Toggle status'}">${statusIcon(g.status)}</button>
+              <button class="goal-action-btn goal-del" onclick="deleteGoal(${g.id})" title="${fr?'Supprimer':'Delete'}">🗑</button>
+            </div>
+          </div>
+          <div class="goal-card-title">${g.name}</div>
+          ${g.description ? `<div class="goal-card-desc">${g.description}</div>` : ''}
+
+          <div class="goal-progress-section">
+            <div class="goal-progress-header">
+              <span class="goal-progress-label">${fr?'Progression':'Progress'}</span>
+              <span class="goal-progress-val" style="color:${g.progress>=100?'var(--green)':g.progress>=50?'var(--gold2)':'var(--t2)'}">${g.progress}%</span>
+            </div>
+            <div class="goal-progress-bar">
+              <div class="goal-progress-fill" style="width:${g.progress}%;background:${g.progress>=100?'var(--green)':g.progress>=50?'var(--gold2)':'var(--blue)'}"></div>
+            </div>
+            <input type="range" class="goal-slider" min="0" max="100" value="${g.progress}" oninput="updateGoalProgress(${g.id},this.value)" ${g.status==='completed'?'disabled':''}>
+          </div>
+
+          <!-- Milestones -->
+          <div class="goal-milestones">
+            <div class="goal-ms-header">${fr?'Étapes':'Milestones'} (${g.milestones.filter(m=>m.done).length}/${g.milestones.length})</div>
+            ${g.milestones.map((m, i) => `
+              <div class="goal-ms-item ${m.done?'done':''}">
+                <button class="goal-ms-check" onclick="toggleMilestone(${g.id},${i})">${m.done?'✅':'⬜'}</button>
+                <span class="goal-ms-text">${m.text}</span>
+                <button class="goal-ms-del" onclick="deleteMilestone(${g.id},${i})">×</button>
+              </div>
+            `).join('')}
+            <div class="goal-ms-add">
+              <input class="form-input" id="ms-input-${g.id}" placeholder="${fr?'Nouvelle étape...':'New milestone...'}" onkeydown="if(event.key==='Enter')addMilestone(${g.id})">
+              <button class="goal-ms-add-btn" onclick="addMilestone(${g.id})">+</button>
+            </div>
+          </div>
+
+          <!-- Footer: deadline + AI -->
+          <div class="goal-card-footer">
+            <div class="goal-card-meta">
+              ${g.deadline ? `<span class="goal-deadline ${isOverdue?'overdue':''}">${isOverdue ? '⚠️' : '📅'} ${daysLeft !== null ? (daysLeft >= 0 ? (fr?'J-'+daysLeft : daysLeft+'d left') : (fr?daysLeft+'j en retard':Math.abs(daysLeft)+'d overdue')) : g.deadline}</span>` : ''}
+              <span style="font-size:9px;color:var(--t4)">${fr?'Créé le':'Created'} ${new Date(g.createdAt).toLocaleDateString(fr?'fr-FR':'en-US')}</span>
+            </div>
+            <button class="goal-ai-coach-btn" onclick="askGoalAI(${g.id})" ${S.goalAiLoading?'disabled':''}>
+              🤖 ${S.goalAiLoading ? '...' : (fr?'Coach IA':'AI Coach')}
+            </button>
+          </div>
+          ${g.aiAdvice ? `<div class="goal-ai-advice">${g.aiAdvice.replace(/\n/g,'<br>')}</div>` : ''}
+        </div>`;
+      }).join('')}
+  `;
 }
 
 /* ══════════════════════════════════════════════
