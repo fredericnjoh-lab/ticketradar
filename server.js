@@ -236,94 +236,57 @@ async function fetchSeatGeekEvents(query = '', perPage = 50) {
 }
 
 /**
- * Fetch events from Ticketmaster Discovery API + Inventory Status
+ * Fetch events from Ticketmaster Discovery API
+ * Uses priceRanges from Discovery response directly (no Inventory Status API)
  * Docs: https://developer.ticketmaster.com
  */
 async function fetchTicketmasterEvents(query = '', size = 20) {
   if (!TICKETMASTER_API_KEY) return [];
   try {
-    // Step 1: Discovery — find events
-    const discParams = new URLSearchParams({
+    const params = new URLSearchParams({
       apikey:       TICKETMASTER_API_KEY,
       size,
       sort:         'relevance,desc',
       includeTBA:   'no',
       includeTBD:   'no',
     });
-    if (query) discParams.set('keyword', query);
+    if (query) params.set('keyword', query);
 
-    const discUrl = `https://app.ticketmaster.com/discovery/v2/events.json?${discParams}`;
-    const discRes  = await axios.get(discUrl, { timeout: 10000 });
-    const events   = discRes.data?._embedded?.events || [];
+    const url = `https://app.ticketmaster.com/discovery/v2/events.json?${params}`;
+    const res = await axios.get(url, { timeout: 10000 });
+    const events = res.data?._embedded?.events || [];
 
-    // Step 2: Inventory Status — get resale prices (batch by 10)
-    const results = [];
-    const chunks  = [];
-    for (let i = 0; i < events.length; i += 10) chunks.push(events.slice(i, i + 10));
+    return events.map(ev => {
+      const priceRanges = ev.priceRanges || [];
+      const minPrice    = Math.min(...priceRanges.map(p => p.min || Infinity));
+      const maxPrice    = Math.max(...priceRanges.map(p => p.max || 0));
+      const face        = isFinite(minPrice) ? minPrice : 0;
+      const resale      = maxPrice > face ? maxPrice : 0;
+      const marge       = face > 0 && resale > 0 ? Math.round(((resale * 0.85 - face) / face) * 100) : 0;
+      const taxonomy    = (ev.classifications || [])[0] || {};
+      const segment     = taxonomy.segment?.name?.toLowerCase() || 'event';
+      const countryCode = ev._embedded?.venues?.[0]?.country?.countryCode || '';
 
-    for (const chunk of chunks) {
-      const ids = chunk.map(e => e.id).join(',');
-      try {
-        const invUrl = `https://app.ticketmaster.com/inventory-status/v1/availability?events=${ids}&apikey=${TICKETMASTER_API_KEY}`;
-        const invRes = await axios.get(invUrl, { timeout: 8000 });
-        const invMap = {};
-        (invRes.data || []).forEach(item => { invMap[item.eventId] = item; });
-
-        chunk.forEach(ev => {
-          const inv     = invMap[ev.id] || {};
-          const primary = (inv.priceRanges || []).find(p => p.type === 'primary') || {};
-          const resaleP = (inv.priceRanges || []).find(p => p.type === 'resale')  || {};
-          const face    = primary.minPrice || 0;
-          const resale  = resaleP.minPrice || 0;
-          const marge   = face > 0 && resale > 0 ? Math.round(((resale - face) / face) * 100) : 0;
-
-          if (face > 0) {
-            const taxonomy = (ev.classifications || [])[0] || {};
-            const segment  = taxonomy.segment?.name?.toLowerCase() || 'event';
-            results.push({
-              source:   'ticketmaster',
-              tm_id:    ev.id,
-              name:     ev.name || '',
-              date:     ev.dates?.start?.localDate || '',
-              venue:    ev._embedded?.venues?.[0]?.name || '',
-              city:     ev._embedded?.venues?.[0]?.city?.name || '',
-              country:  ev._embedded?.venues?.[0]?.country?.countryCode || '',
-              cat:      segment,
-              platform: 'Ticketmaster',
-              face,
-              resale:   resale || face,
-              resale_max: primary.maxPrice || 0,
-              score:    8,
-              marge,
-              url:      ev.url || '',
-              flag:     countryToFlag(ev._embedded?.venues?.[0]?.country?.countryCode || ''),
-            });
-          }
-        });
-      } catch (err) {
-        console.error('[TM Inventory] Chunk error:', err.message);
-        // Push events without resale prices
-        chunk.forEach(ev => {
-          const priceRange = (ev.priceRanges || [])[0] || {};
-          const face = priceRange.min || 0;
-          if (face > 0) {
-            results.push({
-              source: 'ticketmaster', tm_id: ev.id,
-              name: ev.name || '', date: ev.dates?.start?.localDate || '',
-              venue: ev._embedded?.venues?.[0]?.name || '',
-              city: ev._embedded?.venues?.[0]?.city?.name || '',
-              country: ev._embedded?.venues?.[0]?.country?.countryCode || '',
-              cat: 'event', platform: 'Ticketmaster',
-              face, resale: face, marge: 0, score: 7,
-              url: ev.url || '',
-              flag: countryToFlag(ev._embedded?.venues?.[0]?.country?.countryCode || ''),
-            });
-          }
-        });
-      }
-      await new Promise(r => setTimeout(r, 200)); // respect rate limit
-    }
-    return results;
+      return {
+        source:     'ticketmaster',
+        tm_id:      ev.id,
+        name:       ev.name || '',
+        date:       ev.dates?.start?.localDate || '',
+        venue:      ev._embedded?.venues?.[0]?.name || '',
+        city:       ev._embedded?.venues?.[0]?.city?.name || '',
+        country:    countryCode,
+        cat:        segment,
+        platform:   'Ticketmaster',
+        face,
+        resale:     resale || face,
+        resale_max: maxPrice,
+        score:      8,
+        marge,
+        url:        ev.url || '',
+        flag:       countryToFlag(countryCode),
+        discovered: face === 0 && resale === 0,
+      };
+    }).filter(e => e.name);
   } catch (err) {
     console.error('[Ticketmaster] Erreur:', err.message);
     return [];
