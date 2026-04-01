@@ -839,12 +839,15 @@ app.post('/api/ai', async (req, res) => {
   }
 
   try {
-    const response = await axios.post('https://api.anthropic.com/v1/messages', {
+    const requestBody = {
       model: 'claude-sonnet-4-20250514',
       max_tokens: 400,
       system: `You are a ticket resale expert. Current market context: ${(context || '').slice(0, 1000)}. Detect the language of the user's question and always respond in that same language. Keep answers to 2-3 sentences max, direct and actionable.`,
-      messages: [{ role: 'user', content: question }],
-    }, {
+      messages: [{ role: 'user', content: String(question) }],
+    };
+    console.log('[AI] Request body:', JSON.stringify(requestBody, null, 2));
+
+    const response = await axios.post('https://api.anthropic.com/v1/messages', requestBody, {
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
