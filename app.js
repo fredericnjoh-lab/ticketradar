@@ -534,11 +534,12 @@ function buildMobileCards(evs) {
             <div class="mec-name">${e.flag||'🎫'} ${e.name}</div>
             <div class="mec-sub">${e.sub||''} · ${e.date||''}</div>
           </div>
-          <div class="mec-marge" style="color:${margeCol}">+${e.marge}%</div>
+          <div class="mec-marge" style="color:${e.discovered && !e.marge ? 'var(--t3)' : margeCol}">${e.discovered && !e.marge ? '—' : '+'+e.marge+'%'}</div>
         </div>
+        ${e.discovered ? '<div class="mec-row"><span class="mec-pill" style="color:#2DD4A0;border-color:rgba(45,212,160,.22)">DÉCOUVERT</span></div>' : ''}
         <div class="mec-row">
-          <span class="mec-pill">Face: ${e.face}€</span>
-          <span class="mec-pill">Revente: ${e.resale}€</span>
+          <span class="mec-pill">${e.discovered && !e.face ? 'Prix TBD' : 'Face: '+e.face+'€'}</span>
+          <span class="mec-pill">${e.discovered && !e.resale ? 'Prix TBD' : 'Revente: '+e.resale+'€'}</span>
           ${e.live ? '<span class="mec-pill" style="color:var(--green);border-color:var(--greenbdr)">📡 Live</span>' : ''}
           ${drop && dpct <= -5 ? `<span class="mec-pill" style="color:var(--red);border-color:var(--redbdr)">📉 ${dpct}%</span>` : ''}
         </div>
@@ -580,15 +581,16 @@ function buildTable(evs) {
       <td>
         <div class="ev-name">${e.flag||'🎫'} ${e.name}
           ${e.live?'<span class="live-badge">LIVE</span>':''}
+          ${e.discovered?'<span style="display:inline-flex;align-items:center;font-size:8px;font-weight:700;font-family:var(--font-mono);padding:1px 6px;border-radius:3px;background:rgba(45,212,160,.10);color:#2DD4A0;border:1px solid rgba(45,212,160,.22);margin-left:4px">DÉCOUVERT</span>':''}
           ${drop&&dpct<=-5?`<span class="drop-badge">📉 ${dpct}%</span>`:''}
         </div>
         <div class="ev-sub">${e.sub||''} · ${e.date}</div>
       </td>
       <td><span class="hdot ${hClass(e.h)}"></span><span style="font-size:10px;color:var(--t3)">${hLabel(e.h)}</span></td>
       <td><span class="cat-tag ct-${e.custom?'custom':e.cat}">${e.custom?'CUSTOM':e.cat.toUpperCase()}</span></td>
-      <td class="mf">${e.face.toLocaleString()}€</td>
-      <td class="mr" style="color:${drop&&dpct<=-5?'var(--red)':'var(--t1)'}">${e.resale.toLocaleString()}€${drop&&dpct<=-5?` <span style="font-size:9px;color:var(--red)">(${dpct}%)</span>`:''}</td>
-      <td><span class="mb ${mc(e.marge)}">+${e.marge}%</span></td>
+      <td class="mf">${e.discovered && !e.face ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.face.toLocaleString()+'€'}</td>
+      <td class="mr" style="color:${drop&&dpct<=-5?'var(--red)':'var(--t1)'}">${e.discovered && !e.resale ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.resale.toLocaleString()+'€'}${drop&&dpct<=-5?` <span style="font-size:9px;color:var(--red)">(${dpct}%)</span>`:''}</td>
+      <td>${e.discovered && !e.marge ? '<span style="color:var(--t3);font-style:italic">—</span>' : `<span class="mb ${mc(e.marge)}">+${e.marge}%</span>`}</td>
       <td><div style="display:flex;align-items:center;gap:6px"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
       <td><span class="plat-tag">${e.platform}</span></td>
       <td>
@@ -925,7 +927,7 @@ function renderDash(c) {
   const avg  = all.length ? Math.round(all.reduce((a,e) => a+e.marge,0) / all.length) : 0;
   const drops = all.filter(e => hasDrop(e) && dropPct(e) <= -5).length;
   const upcoming = all.filter(e => { const ps = getPresaleStatus(e); return ps && ps.days >= 0 && ps.days <= 7; }).length;
-  const trending  = [...all].sort((a,b) => b.marge - a.marge).slice(0,4);
+  const trending  = [...all].filter(e => !e.discovered).sort((a,b) => b.marge - a.marge).slice(0,4);
 
   /* ── Alerts ── */
   const alerts = [
