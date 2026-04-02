@@ -1454,12 +1454,12 @@ function addWl() {
    AI GOAL TRACKER
 ══════════════════════════════════════════════ */
 const GOAL_CATEGORIES = {
-  finance:  { icon: '💰', color: 'var(--green)',  labelFr: 'Finance',      labelEn: 'Finance' },
-  career:   { icon: '💼', color: 'var(--blue)',   labelFr: 'Carrière',     labelEn: 'Career' },
-  health:   { icon: '🏋️', color: 'var(--red)',    labelFr: 'Santé',        labelEn: 'Health' },
-  learning: { icon: '📚', color: 'var(--purple)', labelFr: 'Apprentissage',labelEn: 'Learning' },
-  personal: { icon: '🎯', color: 'var(--gold2)',  labelFr: 'Personnel',    labelEn: 'Personal' },
-  social:   { icon: '🤝', color: 'var(--teal)',   labelFr: 'Social',       labelEn: 'Social' },
+  finance:  { icon: '$',  color: 'var(--green)',  labelFr: 'Finance',      labelEn: 'Finance' },
+  career:   { icon: 'W',  color: 'var(--blue)',   labelFr: 'Carrière',     labelEn: 'Career' },
+  health:   { icon: 'H',  color: 'var(--red)',    labelFr: 'Santé',        labelEn: 'Health' },
+  learning: { icon: 'L',  color: 'var(--purple)', labelFr: 'Apprentissage',labelEn: 'Learning' },
+  personal: { icon: 'P',  color: 'var(--gold2)',  labelFr: 'Personnel',    labelEn: 'Personal' },
+  social:   { icon: 'S',  color: 'var(--teal)',   labelFr: 'Social',       labelEn: 'Social' },
 };
 
 function addGoal() {
@@ -1468,7 +1468,7 @@ function addGoal() {
   const category = document.getElementById('goal-cat')?.value || 'personal';
   const deadline = document.getElementById('goal-deadline')?.value || '';
   const priority = document.getElementById('goal-priority')?.value || 'medium';
-  if (!name) { toast(S.lang==='fr'?'Donne un nom à ton objectif':'Give your goal a name','⚠️'); return; }
+  if (!name) { toast(S.lang==='fr'?'Donne un nom à ton objectif':'Give your goal a name','!'); return; }
 
   const goal = {
     id: S.goalsNextId++,
@@ -1487,13 +1487,13 @@ function addGoal() {
   S.goals.push(goal);
   saveState();
   render();
-  toast(S.lang==='fr'?'Objectif ajouté !':'Goal added!','🎯');
+  toast(S.lang==='fr'?'Objectif ajouté':'Goal added','+');
 }
 
 function deleteGoal(id) {
   S.goals = S.goals.filter(g => g.id !== id);
   saveState(); render();
-  toast(S.lang==='fr'?'Objectif supprimé':'Goal deleted','🗑');
+  toast(S.lang==='fr'?'Objectif supprimé':'Goal deleted','—');
 }
 
 function updateGoalProgress(id, val) {
@@ -1504,7 +1504,7 @@ function updateGoalProgress(id, val) {
   if (g.progress === 100 && g.status === 'active') {
     g.status = 'completed';
     g.completedAt = new Date().toISOString();
-    toast(S.lang==='fr'?'Bravo ! Objectif atteint !':'Congrats! Goal achieved!','🏆');
+    toast(S.lang==='fr'?'Objectif atteint':'Goal achieved','✓');
   }
   saveState(); render();
 }
@@ -1543,7 +1543,7 @@ function toggleMilestone(goalId, msIdx) {
     g.progress = Math.round((g.milestones.filter(m => m.done).length / total) * 100);
     if (g.progress === 100 && g.status === 'active') {
       g.status = 'completed'; g.completedAt = new Date().toISOString();
-      toast(S.lang==='fr'?'Bravo ! Objectif atteint !':'Congrats! Goal achieved!','🏆');
+      toast(S.lang==='fr'?'Objectif atteint':'Goal achieved','✓');
     }
   }
   g.updatedAt = new Date().toISOString();
@@ -1664,45 +1664,45 @@ function renderGoals(c) {
   });
 
   const catLabel = (cat) => GOAL_CATEGORIES[cat] ? (fr ? GOAL_CATEGORIES[cat].labelFr : GOAL_CATEGORIES[cat].labelEn) : cat;
-  const catIcon = (cat) => GOAL_CATEGORIES[cat]?.icon || '🎯';
+  const catIcon = (cat) => GOAL_CATEGORIES[cat]?.icon || 'P';
   const catColor = (cat) => GOAL_CATEGORIES[cat]?.color || 'var(--t2)';
   const prioColor = (p) => p === 'high' ? 'var(--red)' : p === 'medium' ? 'var(--gold2)' : 'var(--t3)';
   const prioLabel = (p) => fr ? (p === 'high' ? 'Haute' : p === 'medium' ? 'Moyenne' : 'Basse') : (p === 'high' ? 'High' : p === 'medium' ? 'Medium' : 'Low');
-  const statusIcon = (s) => s === 'completed' ? '✅' : s === 'paused' ? '⏸' : '🔵';
+  const statusIcon = (s) => s === 'completed' ? '✓' : s === 'paused' ? '‖' : '●';
 
   c.innerHTML = `
     <!-- Stats cards -->
     <div class="goal-stats-grid">
       <div class="goal-stat-card">
-        <div class="goal-stat-icon" style="background:var(--greenbg);color:var(--green)">🎯</div>
+        <div class="goal-stat-icon" style="background:var(--greenbg);color:var(--green)">#</div>
         <div class="goal-stat-info">
           <div class="goal-stat-val">${stats.total}</div>
           <div class="goal-stat-lbl">${fr?'Objectifs total':'Total goals'}</div>
         </div>
       </div>
       <div class="goal-stat-card">
-        <div class="goal-stat-icon" style="background:var(--greenbg);color:var(--green)">✅</div>
+        <div class="goal-stat-icon" style="background:var(--greenbg);color:var(--green)">✓</div>
         <div class="goal-stat-info">
           <div class="goal-stat-val" style="color:var(--green)">${stats.completed}</div>
           <div class="goal-stat-lbl">${fr?'Complétés':'Completed'}</div>
         </div>
       </div>
       <div class="goal-stat-card">
-        <div class="goal-stat-icon" style="background:var(--goldbg);color:var(--gold2)">📊</div>
+        <div class="goal-stat-icon" style="background:var(--goldbg);color:var(--gold2)">%</div>
         <div class="goal-stat-info">
           <div class="goal-stat-val" style="color:var(--gold2)">${stats.avgProgress}%</div>
           <div class="goal-stat-lbl">${fr?'Progression moy.':'Avg progress'}</div>
         </div>
       </div>
       <div class="goal-stat-card">
-        <div class="goal-stat-icon" style="background:rgba(168,85,247,.12);color:var(--purple)">🔥</div>
+        <div class="goal-stat-icon" style="background:rgba(168,85,247,.12);color:var(--purple)">↑</div>
         <div class="goal-stat-info">
           <div class="goal-stat-val" style="color:var(--purple)">${stats.streak}j</div>
           <div class="goal-stat-lbl">${fr?'Série active':'Active streak'}</div>
         </div>
       </div>
       ${stats.overdue > 0 ? `<div class="goal-stat-card" style="border-color:var(--red)">
-        <div class="goal-stat-icon" style="background:rgba(255,94,94,.12);color:var(--red)">⚠️</div>
+        <div class="goal-stat-icon" style="background:rgba(255,94,94,.12);color:var(--red)">!</div>
         <div class="goal-stat-info">
           <div class="goal-stat-val" style="color:var(--red)">${stats.overdue}</div>
           <div class="goal-stat-lbl">${fr?'En retard':'Overdue'}</div>
@@ -1713,7 +1713,7 @@ function renderGoals(c) {
     <!-- AI Global Coach -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
-        <span class="card-title">🤖 ${fr?'Coach IA Global':'AI Global Coach'}</span>
+        <span class="card-title">${fr?'Coach IA Global':'AI Global Coach'}</span>
         <button class="goal-ai-btn" onclick="askGoalAIGlobal()" ${S.goalAiLoading?'disabled':''}>
           ${S.goalAiLoading ? (fr?'Analyse...':'Analyzing...') : (fr?'Bilan IA':'AI Assessment')}
         </button>
@@ -1728,7 +1728,7 @@ function renderGoals(c) {
     <!-- Add goal form -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
-        <span class="card-title">➕ ${fr?'Nouvel objectif':'New goal'}</span>
+        <span class="card-title">${fr?'Nouvel objectif':'New goal'}</span>
       </div>
       <div class="goal-form">
         <div class="goal-form-row">
@@ -1741,12 +1741,12 @@ function renderGoals(c) {
           <input class="form-input" id="goal-desc" placeholder="${fr?'Description (optionnel)':'Description (optional)'}" style="flex:2">
           <input class="form-input" id="goal-deadline" type="date" style="flex:1">
           <select class="form-select" id="goal-priority" style="flex:0.7">
-            <option value="high">${fr?'🔴 Haute':'🔴 High'}</option>
-            <option value="medium" selected>${fr?'🟡 Moyenne':'🟡 Medium'}</option>
-            <option value="low">${fr?'🟢 Basse':'🟢 Low'}</option>
+            <option value="high">${fr?'Haute':'High'}</option>
+            <option value="medium" selected>${fr?'Moyenne':'Medium'}</option>
+            <option value="low">${fr?'Basse':'Low'}</option>
           </select>
         </div>
-        <button class="goal-add-btn" onclick="addGoal()">🎯 ${fr?'Ajouter l\'objectif':'Add goal'}</button>
+        <button class="goal-add-btn" onclick="addGoal()">+ ${fr?'Ajouter':'Add goal'}</button>
       </div>
     </div>
 
@@ -1768,7 +1768,7 @@ function renderGoals(c) {
     ${goals.length === 0 ? `
       <div class="card">
         <div class="empty">
-          <div class="empty-icon">🎯</div>
+          <div class="empty-icon">—</div>
           <div class="empty-txt">${fr?'Aucun objectif trouvé. Ajoute ton premier objectif ci-dessus !':'No goals found. Add your first goal above!'}</div>
         </div>
       </div>` :
@@ -1787,7 +1787,7 @@ function renderGoals(c) {
             </div>
             <div class="goal-card-actions">
               <button class="goal-action-btn" onclick="toggleGoalStatus(${g.id})" title="${fr?'Changer statut':'Toggle status'}">${statusIcon(g.status)}</button>
-              <button class="goal-action-btn goal-del" onclick="deleteGoal(${g.id})" title="${fr?'Supprimer':'Delete'}">🗑</button>
+              <button class="goal-action-btn goal-del" onclick="deleteGoal(${g.id})" title="${fr?'Supprimer':'Delete'}">×</button>
             </div>
           </div>
           <div class="goal-card-title">${g.name}</div>
@@ -1809,7 +1809,7 @@ function renderGoals(c) {
             <div class="goal-ms-header">${fr?'Étapes':'Milestones'} (${g.milestones.filter(m=>m.done).length}/${g.milestones.length})</div>
             ${g.milestones.map((m, i) => `
               <div class="goal-ms-item ${m.done?'done':''}">
-                <button class="goal-ms-check" onclick="toggleMilestone(${g.id},${i})">${m.done?'✅':'⬜'}</button>
+                <button class="goal-ms-check" onclick="toggleMilestone(${g.id},${i})">${m.done?'✓':'○'}</button>
                 <span class="goal-ms-text">${m.text}</span>
                 <button class="goal-ms-del" onclick="deleteMilestone(${g.id},${i})">×</button>
               </div>
@@ -1823,11 +1823,11 @@ function renderGoals(c) {
           <!-- Footer: deadline + AI -->
           <div class="goal-card-footer">
             <div class="goal-card-meta">
-              ${g.deadline ? `<span class="goal-deadline ${isOverdue?'overdue':''}">${isOverdue ? '⚠️' : '📅'} ${daysLeft !== null ? (daysLeft >= 0 ? (fr?'J-'+daysLeft : daysLeft+'d left') : (fr?daysLeft+'j en retard':Math.abs(daysLeft)+'d overdue')) : g.deadline}</span>` : ''}
+              ${g.deadline ? `<span class="goal-deadline ${isOverdue?'overdue':''}">${daysLeft !== null ? (daysLeft >= 0 ? (fr?'J-'+daysLeft : daysLeft+'d left') : (fr?Math.abs(daysLeft)+'j en retard':Math.abs(daysLeft)+'d overdue')) : g.deadline}</span>` : ''}
               <span style="font-size:9px;color:var(--t4)">${fr?'Créé le':'Created'} ${new Date(g.createdAt).toLocaleDateString(fr?'fr-FR':'en-US')}</span>
             </div>
             <button class="goal-ai-coach-btn" onclick="askGoalAI(${g.id})" ${S.goalAiLoading?'disabled':''}>
-              🤖 ${S.goalAiLoading ? '...' : (fr?'Coach IA':'AI Coach')}
+              ${S.goalAiLoading ? '...' : (fr?'Coach IA':'AI Coach')}
             </button>
           </div>
           ${g.aiAdvice ? `<div class="goal-ai-advice">${g.aiAdvice.replace(/\n/g,'<br>')}</div>` : ''}
