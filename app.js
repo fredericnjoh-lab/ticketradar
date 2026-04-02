@@ -1454,12 +1454,12 @@ function addWl() {
    AI GOAL TRACKER
 ══════════════════════════════════════════════ */
 const GOAL_CATEGORIES = {
-  finance:  { icon: '$',  color: 'var(--green)',  labelFr: 'Finance',      labelEn: 'Finance' },
-  career:   { icon: 'W',  color: 'var(--blue)',   labelFr: 'Carrière',     labelEn: 'Career' },
-  health:   { icon: 'H',  color: 'var(--red)',    labelFr: 'Santé',        labelEn: 'Health' },
-  learning: { icon: 'L',  color: 'var(--purple)', labelFr: 'Apprentissage',labelEn: 'Learning' },
-  personal: { icon: 'P',  color: 'var(--gold2)',  labelFr: 'Personnel',    labelEn: 'Personal' },
-  social:   { icon: 'S',  color: 'var(--teal)',   labelFr: 'Social',       labelEn: 'Social' },
+  finance:  { icon: 'FIN', color: 'var(--green)',  labelFr: 'Finance',      labelEn: 'Finance' },
+  career:   { icon: 'PRO', color: 'var(--blue)',   labelFr: 'Carrière',     labelEn: 'Career' },
+  health:   { icon: 'FIT', color: 'var(--red)',    labelFr: 'Santé',        labelEn: 'Health' },
+  learning: { icon: 'EDU', color: 'var(--purple)', labelFr: 'Apprentissage',labelEn: 'Learning' },
+  personal: { icon: 'DEV', color: 'var(--gold2)',  labelFr: 'Personnel',    labelEn: 'Personal' },
+  social:   { icon: 'SOC', color: 'var(--teal)',   labelFr: 'Social',       labelEn: 'Social' },
 };
 
 function addGoal() {
