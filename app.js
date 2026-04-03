@@ -384,25 +384,8 @@ async function sendTelegramDirect(events, seuil) {
     }
   }
 
-  // Stratégie 2 : Direct depuis le navigateur (fallback si backend down)
-  if (!S.tgToken || !S.tgChatId) return 0;
-  let sent = 0;
-  const hits = events.filter(e => e.marge >= seuil).sort((a,b) => b.marge-a.marge).slice(0,5);
-  for (const ev of hits) {
-    try {
-      const msg = '🔥 TicketRadar v5\n\n' + (ev.flag||'🎫') + ' ' + ev.name +
-        '\n💰 +' + ev.marge + '% · ' + ev.face + '€ → ' + ev.resale + '€' +
-        '\n📅 ' + (ev.date||'') + ' · ' + (ev.platform||'') +
-        '\n👉 https://fredericnjoh-lab.github.io/ticketradar/';
-      const r = await fetch('https://api.telegram.org/bot' + S.tgToken + '/sendMessage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: S.tgChatId, text: msg })
-      });
-      if ((await r.json()).ok) sent++;
-    } catch(e) {}
-  }
-  return sent;
+  // No direct Telegram fallback — backend only
+  return 0;
 }
 
 /* ══════════════════════════════════════════════
@@ -465,6 +448,7 @@ function applyLang() {
     'nav-compare':  fr ? 'Comparer'       : 'Compare',
     'nav-roi':      fr ? 'ROI Calc'       : 'ROI Calc',
     'nav-add':      fr ? '+ Ajouter'      : '+ Add',
+    'nav-pricing':  fr ? 'Tarifs 💎'      : 'Pricing 💎',
     'nav-settings': fr ? 'Config ⚙'       : 'Settings ⚙',
   };
   Object.entries(navMap).forEach(([id, label]) => {
@@ -954,6 +938,7 @@ function render() {
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'goals') renderGoals(c);
+  else if (S.view === 'pricing') renderPricing(c);
   else if (S.view === 'settings') renderSettings(c);
 }
 
@@ -1837,6 +1822,77 @@ function renderGoals(c) {
 }
 
 /* ══════════════════════════════════════════════
+   PRICING
+══════════════════════════════════════════════ */
+function renderPricing(c) {
+  const fr = S.lang === 'fr';
+  const userPlan = (S.user && S.user.plan) || 'free';
+
+  const freeName = 'Free';
+  const proName  = 'Pro';
+
+  const freeFeatures = fr
+    ? ['Scan de base', 'Watchlist (10 events)', 'Kanban board', 'Calculateur ROI', 'Import Google Sheet']
+    : ['Basic scanning', 'Watchlist (10 events)', 'Kanban board', 'ROI calculator', 'Google Sheet import'];
+
+  const proFeatures = fr
+    ? ['Tout le plan Free', 'AI Predictor (Claude)', 'Auto-scan toutes les 6h', 'Alertes Telegram (marge + drops + presale)', 'Historique des prix & graphiques', 'SeatGeek & Ticketmaster live', 'Watchlist illimitée', 'Support prioritaire']
+    : ['Everything in Free', 'AI Predictor (Claude)', 'Auto-scan every 6h', 'Telegram alerts (margin + drops + presale)', 'Price history & charts', 'SeatGeek & Ticketmaster live data', 'Unlimited watchlist', 'Priority support'];
+
+  const featList = (items) => items.map(f => `<li style="padding:6px 0;border-bottom:1px solid var(--v6-border);display:flex;align-items:center;gap:8px"><span style="color:var(--v6-green)">&#10003;</span> ${f}</li>`).join('');
+
+  c.innerHTML = `
+    <div style="max-width:800px;margin:0 auto;padding:24px">
+      <h2 style="text-align:center;margin-bottom:8px">${fr ? 'Choisissez votre plan' : 'Choose your plan'}</h2>
+      <p style="text-align:center;color:var(--v6-t3);margin-bottom:32px">${fr ? 'Passez Pro pour débloquer toute la puissance de TicketRadar' : 'Go Pro to unlock the full power of TicketRadar'}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <!-- Free Plan -->
+        <div style="background:var(--v6-card);border:2px solid ${userPlan==='free'?'var(--v6-green)':'var(--v6-border)'};border-radius:16px;padding:28px;display:flex;flex-direction:column">
+          <h3 style="margin:0 0 4px">${freeName}</h3>
+          <div style="font-size:32px;font-weight:700;margin:12px 0">0&euro;<span style="font-size:14px;color:var(--v6-t3);font-weight:400"> / ${fr?'mois':'month'}</span></div>
+          ${userPlan==='free'?`<div style="background:var(--v6-green);color:#000;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin:12px 0">${fr?'Plan actuel':'Current plan'}</div>`:`<div style="background:var(--v6-border);text-align:center;padding:10px;border-radius:8px;color:var(--v6-t3);margin:12px 0">${fr?'Plan de base':'Basic plan'}</div>`}
+          <ul style="list-style:none;padding:0;margin:16px 0;flex:1">${featList(freeFeatures)}</ul>
+        </div>
+        <!-- Pro Plan -->
+        <div style="background:var(--v6-card);border:2px solid ${userPlan==='pro'?'var(--v6-green)':'var(--v6-purple)'};border-radius:16px;padding:28px;display:flex;flex-direction:column;position:relative">
+          <div style="position:absolute;top:-12px;right:16px;background:var(--v6-purple);color:#fff;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600">${fr?'POPULAIRE':'POPULAR'}</div>
+          <h3 style="margin:0 0 4px">${proName}</h3>
+          <div style="font-size:32px;font-weight:700;margin:12px 0">49&euro;<span style="font-size:14px;color:var(--v6-t3);font-weight:400"> / ${fr?'mois':'month'}</span></div>
+          ${userPlan==='pro'
+            ?`<div style="background:var(--v6-green);color:#000;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin:12px 0">${fr?'Plan actuel':'Current plan'}</div>`
+            :`<button onclick="startProCheckout()" style="background:var(--v6-purple);color:#fff;border:none;padding:12px;border-radius:8px;font-weight:600;cursor:pointer;width:100%;font-size:15px;margin:12px 0">${fr?'Passer Pro':'Upgrade to Pro'}</button>`}
+          <ul style="list-style:none;padding:0;margin:16px 0;flex:1">${featList(proFeatures)}</ul>
+        </div>
+      </div>
+      <p style="text-align:center;color:var(--v6-t4);margin-top:24px;font-size:12px">${fr?'Paiement sécurisé via Stripe. Annulation à tout moment.':'Secure payment via Stripe. Cancel anytime.'}</p>
+    </div>`;
+}
+
+async function startProCheckout() {
+  const fr = S.lang === 'fr';
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) { toast(fr?'Configure le backend':'Configure backend URL','⚠'); return; }
+
+  const email = S.user?.email;
+  if (!email) { toast(fr?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
+
+  try {
+    toast(fr?'Redirection vers Stripe...':'Redirecting to Stripe...','💳');
+    const res = await fetch(backendUrl + '/api/create-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, userId: S.user?.id || '' })
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      toast((fr?'Erreur : ':'Error: ') + (data.error||'unknown'),'⚠');
+    }
+  } catch(e) { toast('Erreur : '+e.message,'⚠'); }
+}
+
+/* ══════════════════════════════════════════════
    SETTINGS
 ══════════════════════════════════════════════ */
 function renderSettings(c) {
@@ -1933,17 +1989,18 @@ function saveTgConfig() {
 }
 
 async function testTgDirect() {
-  const token = document.getElementById('tg-token-input')?.value.trim()||S.tgToken;
   const chatid = document.getElementById('tg-chatid-input')?.value.trim()||S.tgChatId;
-  if (!token||!chatid) { toast(S.lang==='fr'?'Renseigne token et chat ID':'Enter token and chat ID','⚠'); return; }
+  if (!chatid) { toast(S.lang==='fr'?'Renseigne le chat ID':'Enter chat ID','⚠'); return; }
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) { toast(S.lang==='fr'?'Configure l\'URL du backend':'Configure backend URL','⚠'); return; }
   try {
-    const r = await fetch('https://api.telegram.org/bot'+token+'/sendMessage', {
+    const r = await fetch(backendUrl + '/api/notify', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({chat_id:chatid, text:'🧪 TicketRadar v5 — Test OK ! 🎫'})
+      body:JSON.stringify({ events:[], drops:[], seuil:0, chatId:chatid, test:true })
     });
     const d = await r.json();
-    if (d.ok) toast(S.lang==='fr'?'✓ Message Telegram reçu !':'✓ Telegram message received!','📱');
-    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+d.description,'⚠');
+    if (r.ok) toast(S.lang==='fr'?'✓ Message Telegram reçu !':'✓ Telegram message received!','📱');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.description),'⚠');
   } catch(e) { toast('Erreur : '+e.message,'⚠'); }
 }
 
@@ -2829,55 +2886,38 @@ function getPresaleStatus(ev) {
 }
 
 async function sendPresaleAlerts(events) {
-  if (!S.tgToken || !S.tgChatId) return 0;
-  let sent = 0;
+  if (!S.tgChatId) return 0;
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return 0;
+
   const ALERT_DAYS = [3, 1, 0];
-
-  for (const ev of events) {
+  const presaleEvents = events.filter(ev => {
     const ps = getPresaleStatus(ev);
-    if (!ps || !ALERT_DAYS.includes(ps.days)) continue;
+    return ps && ALERT_DAYS.includes(ps.days);
+  });
 
-    const source = PRESALE_SOURCES[ev.presale_code] || { label: ev.presale_code || 'Presale', icon: '🔑' };
-    const urgency = ps.days === 0 ? '🚨 MAINTENANT' : ps.days === 1 ? '⚡ DEMAIN' : `📅 Dans ${ps.days} jours`;
+  if (!presaleEvents.length) return 0;
 
-    const msg =
-      `🔑 <b>TicketRadar — Presale ${urgency} !</b>
-
-` +
-      `${ev.flag||'🎫'} <b>${ev.name}</b>
-` +
-      `📅 Presale : <b>${ev.presale_date || ev.presale}</b>
-` +
-      `${source.icon} Code : <b>${source.label}</b>
-` +
-      `💡 ${source.tip || ''}
-` +
-      `💰 Marge estimée : <b>+${ev.marge}%</b>
-` +
-      `🎫 Face : ${ev.face}€ → Revente : ${ev.resale}€
-
-` +
-      (ps.days === 0
-        ? `⚡ <b>C'est maintenant — achète avant la vente générale !</b>
-`
-        : ps.days <= 1
-        ? `⏰ Prépare-toi — la presale ouvre demain !
-`
-        : `📌 Mets une alarme pour ne pas rater l'ouverture.
-`) +
-      `
-👉 <a href="https://fredericnjoh-lab.github.io/ticketradar/">Ouvrir TicketRadar</a>`;
-
-    try {
-      const r = await fetch('https://api.telegram.org/bot' + S.tgToken + '/sendMessage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: S.tgChatId, text: msg, parse_mode: 'HTML' })
-      });
-      if ((await r.json()).ok) { sent++; await new Promise(r => setTimeout(r, 300)); }
-    } catch(e) {}
+  try {
+    const res = await fetch(backendUrl + '/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        events: presaleEvents,
+        drops: [],
+        seuil: 0,
+        chatId: S.tgChatId,
+        presaleAlert: true
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.sent || 0;
+    }
+  } catch(e) {
+    console.warn('[TG] Backend indisponible pour presale alerts:', e.message);
   }
-  return sent;
+  return 0;
 }
 
 function renderPresaleTracker(c) {

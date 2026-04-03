@@ -17,6 +17,7 @@ const express    = require('express');
 const cors       = require('cors');
 const axios      = require('axios');
 const rateLimit  = require('express-rate-limit');
+const Stripe     = require('stripe');
 require('dotenv').config();
 
 const app  = express();
@@ -35,9 +36,15 @@ const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET || '';
 const TICKETMASTER_API_KEY   = process.env.TICKETMASTER_API_KEY   || '';
 const ANTHROPIC_API_KEY      = process.env.ANTHROPIC_API_KEY      || '';
 
+const STRIPE_SECRET_KEY     = process.env.STRIPE_SECRET_KEY     || '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const STRIPE_PRO_PRICE_ID   = process.env.STRIPE_PRO_PRICE_ID  || '';
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+
 if (!SEATGEEK_CLIENT_ID)   console.warn('⚠ SEATGEEK_CLIENT_ID manquant — /api/scan limité');
 if (!TICKETMASTER_API_KEY) console.warn('⚠ TICKETMASTER_API_KEY manquant — /api/scan limité');
 if (!ANTHROPIC_API_KEY)    console.warn('⚠ ANTHROPIC_API_KEY manquant — /api/ai désactivé');
+if (!STRIPE_SECRET_KEY)    console.warn('⚠ STRIPE_SECRET_KEY manquant — paiements désactivés');
 
 /* ── Middlewares ── */
 app.use(cors({
@@ -45,6 +52,50 @@ app.use(cors({
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type'],
 }));
+
+/* Stripe webhook needs raw body — must be registered before express.json */
+app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+    return res.status(503).json({ error: 'Stripe non configuré' });
+  }
+
+  let event;
+  try {
+    const sig = req.headers['stripe-signature'];
+    event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('[Stripe] Signature invalide:', err.message);
+    return res.status(400).json({ error: 'Signature invalide' });
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const email = session.customer_email || session.customer_details?.email;
+    const supabaseUserId = session.metadata?.supabase_user_id;
+
+    console.log(`[Stripe] Paiement réussi — ${email} (user: ${supabaseUserId})`);
+
+    // Update user plan in Supabase
+    if (supabaseUserId) {
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL || 'https://ujjivtrfktlervncxvjq.supabase.co';
+        const supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
+        if (supabaseKey) {
+          await axios.patch(
+            `${supabaseUrl}/rest/v1/profiles?id=eq.${supabaseUserId}`,
+            { plan: 'pro', stripe_customer_id: session.customer, upgraded_at: new Date().toISOString() },
+            { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' } }
+          );
+          console.log(`[Stripe] Profil mis à jour → Pro pour ${supabaseUserId}`);
+        }
+      } catch (err) {
+        console.error('[Stripe] Erreur mise à jour Supabase:', err.message);
+      }
+    }
+  }
+
+  res.json({ received: true });
+});
 
 app.use(express.json({ limit: '100kb' }));
 
@@ -124,9 +175,10 @@ app.get('/api/health', (req, res) => {
     seatgeek:    SEATGEEK_CLIENT_ID   ? 'configured' : 'missing',
     ticketmaster: TICKETMASTER_API_KEY ? 'configured' : 'missing',
     anthropic:   ANTHROPIC_API_KEY    ? 'configured' : 'missing',
+    stripe:      STRIPE_SECRET_KEY   ? 'configured' : 'missing',
     sheet:       SHEET_URL            ? 'configured' : 'missing',
     chat_id:     TELEGRAM_CHAT_ID     ? 'configured' : 'missing',
-    endpoints:   ['/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/countdown'],
+    endpoints:   ['/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/countdown', '/api/plans', '/api/create-checkout'],
     timestamp:   new Date().toISOString(),
   });
 });
@@ -864,11 +916,80 @@ app.post('/api/ai', async (req, res) => {
   }
 });
 
+/* ══════════════════════════════════════════════
+   STRIPE — Plans & Checkout
+══════════════════════════════════════════════ */
+
+const PLANS = {
+  free: {
+    id: 'free',
+    name: 'Free',
+    price: 0,
+    currency: 'eur',
+    interval: null,
+    features: [
+      'Basic event scanning',
+      'Watchlist (10 events)',
+      'Kanban board',
+      'ROI calculator',
+      'Manual Google Sheet import',
+    ],
+  },
+  pro: {
+    id: 'pro',
+    name: 'Pro',
+    price: 4900,
+    currency: 'eur',
+    interval: 'month',
+    features: [
+      'Everything in Free',
+      'AI Predictor (Claude)',
+      'Auto-scan every 6h',
+      'Telegram alerts (margin + drops + presale)',
+      'Price history & charts',
+      'SeatGeek & Ticketmaster live data',
+      'Unlimited watchlist',
+      'Priority support',
+    ],
+  },
+};
+
+/* ── GET /api/plans ── */
+app.get('/api/plans', (req, res) => {
+  res.json({ plans: [PLANS.free, PLANS.pro] });
+});
+
+/* ── POST /api/create-checkout ── */
+app.post('/api/create-checkout', async (req, res) => {
+  if (!stripe || !STRIPE_PRO_PRICE_ID) {
+    return res.status(503).json({ error: 'Stripe non configuré' });
+  }
+
+  const { email, userId } = req.body;
+  if (!email) return res.status(400).json({ error: 'email requis' });
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      customer_email: email,
+      metadata: { supabase_user_id: userId || '' },
+      line_items: [{ price: STRIPE_PRO_PRICE_ID, quantity: 1 }],
+      success_url: `${ALLOWED_ORIGIN}/ticketradar/?upgrade=success`,
+      cancel_url:  `${ALLOWED_ORIGIN}/ticketradar/?upgrade=cancel`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('[Stripe] Erreur checkout:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ── 404 ── */
 app.use((req, res) => {
   res.status(404).json({
     error: 'Route non trouvée',
-    available: ['/api/health', '/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/test', '/api/countdown', '/api/countdown/check', '/webhook', '/webhook/setup']
+    available: ['/api/health', '/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/test', '/api/countdown', '/api/countdown/check', '/api/plans', '/api/create-checkout', '/webhook', '/webhook/setup']
   });
 });
 
