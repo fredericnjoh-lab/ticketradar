@@ -448,6 +448,7 @@ function applyLang() {
     'nav-compare':  fr ? 'Comparer'       : 'Compare',
     'nav-roi':      fr ? 'ROI Calc'       : 'ROI Calc',
     'nav-add':      fr ? '+ Ajouter'      : '+ Add',
+    'nav-pricing':  fr ? 'Tarifs 💎'      : 'Pricing 💎',
     'nav-settings': fr ? 'Config ⚙'       : 'Settings ⚙',
   };
   Object.entries(navMap).forEach(([id, label]) => {
@@ -937,6 +938,7 @@ function render() {
   else if (S.view === 'discover') renderDiscover(c);
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'goals') renderGoals(c);
+  else if (S.view === 'pricing') renderPricing(c);
   else if (S.view === 'settings') renderSettings(c);
 }
 
@@ -1817,6 +1819,77 @@ function renderGoals(c) {
         </div>`;
       }).join('')}
   `;
+}
+
+/* ══════════════════════════════════════════════
+   PRICING
+══════════════════════════════════════════════ */
+function renderPricing(c) {
+  const fr = S.lang === 'fr';
+  const userPlan = (S.user && S.user.plan) || 'free';
+
+  const freeName = 'Free';
+  const proName  = 'Pro';
+
+  const freeFeatures = fr
+    ? ['Scan de base', 'Watchlist (10 events)', 'Kanban board', 'Calculateur ROI', 'Import Google Sheet']
+    : ['Basic scanning', 'Watchlist (10 events)', 'Kanban board', 'ROI calculator', 'Google Sheet import'];
+
+  const proFeatures = fr
+    ? ['Tout le plan Free', 'AI Predictor (Claude)', 'Auto-scan toutes les 6h', 'Alertes Telegram (marge + drops + presale)', 'Historique des prix & graphiques', 'SeatGeek & Ticketmaster live', 'Watchlist illimitée', 'Support prioritaire']
+    : ['Everything in Free', 'AI Predictor (Claude)', 'Auto-scan every 6h', 'Telegram alerts (margin + drops + presale)', 'Price history & charts', 'SeatGeek & Ticketmaster live data', 'Unlimited watchlist', 'Priority support'];
+
+  const featList = (items) => items.map(f => `<li style="padding:6px 0;border-bottom:1px solid var(--v6-border);display:flex;align-items:center;gap:8px"><span style="color:var(--v6-green)">&#10003;</span> ${f}</li>`).join('');
+
+  c.innerHTML = `
+    <div style="max-width:800px;margin:0 auto;padding:24px">
+      <h2 style="text-align:center;margin-bottom:8px">${fr ? 'Choisissez votre plan' : 'Choose your plan'}</h2>
+      <p style="text-align:center;color:var(--v6-t3);margin-bottom:32px">${fr ? 'Passez Pro pour débloquer toute la puissance de TicketRadar' : 'Go Pro to unlock the full power of TicketRadar'}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <!-- Free Plan -->
+        <div style="background:var(--v6-card);border:2px solid ${userPlan==='free'?'var(--v6-green)':'var(--v6-border)'};border-radius:16px;padding:28px;display:flex;flex-direction:column">
+          <h3 style="margin:0 0 4px">${freeName}</h3>
+          <div style="font-size:32px;font-weight:700;margin:12px 0">0&euro;<span style="font-size:14px;color:var(--v6-t3);font-weight:400"> / ${fr?'mois':'month'}</span></div>
+          ${userPlan==='free'?`<div style="background:var(--v6-green);color:#000;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin:12px 0">${fr?'Plan actuel':'Current plan'}</div>`:`<div style="background:var(--v6-border);text-align:center;padding:10px;border-radius:8px;color:var(--v6-t3);margin:12px 0">${fr?'Plan de base':'Basic plan'}</div>`}
+          <ul style="list-style:none;padding:0;margin:16px 0;flex:1">${featList(freeFeatures)}</ul>
+        </div>
+        <!-- Pro Plan -->
+        <div style="background:var(--v6-card);border:2px solid ${userPlan==='pro'?'var(--v6-green)':'var(--v6-purple)'};border-radius:16px;padding:28px;display:flex;flex-direction:column;position:relative">
+          <div style="position:absolute;top:-12px;right:16px;background:var(--v6-purple);color:#fff;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600">${fr?'POPULAIRE':'POPULAR'}</div>
+          <h3 style="margin:0 0 4px">${proName}</h3>
+          <div style="font-size:32px;font-weight:700;margin:12px 0">49&euro;<span style="font-size:14px;color:var(--v6-t3);font-weight:400"> / ${fr?'mois':'month'}</span></div>
+          ${userPlan==='pro'
+            ?`<div style="background:var(--v6-green);color:#000;text-align:center;padding:10px;border-radius:8px;font-weight:600;margin:12px 0">${fr?'Plan actuel':'Current plan'}</div>`
+            :`<button onclick="startProCheckout()" style="background:var(--v6-purple);color:#fff;border:none;padding:12px;border-radius:8px;font-weight:600;cursor:pointer;width:100%;font-size:15px;margin:12px 0">${fr?'Passer Pro':'Upgrade to Pro'}</button>`}
+          <ul style="list-style:none;padding:0;margin:16px 0;flex:1">${featList(proFeatures)}</ul>
+        </div>
+      </div>
+      <p style="text-align:center;color:var(--v6-t4);margin-top:24px;font-size:12px">${fr?'Paiement sécurisé via Stripe. Annulation à tout moment.':'Secure payment via Stripe. Cancel anytime.'}</p>
+    </div>`;
+}
+
+async function startProCheckout() {
+  const fr = S.lang === 'fr';
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) { toast(fr?'Configure le backend':'Configure backend URL','⚠'); return; }
+
+  const email = S.user?.email;
+  if (!email) { toast(fr?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
+
+  try {
+    toast(fr?'Redirection vers Stripe...':'Redirecting to Stripe...','💳');
+    const res = await fetch(backendUrl + '/api/create-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, userId: S.user?.id || '' })
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      toast((fr?'Erreur : ':'Error: ') + (data.error||'unknown'),'⚠');
+    }
+  } catch(e) { toast('Erreur : '+e.message,'⚠'); }
 }
 
 /* ══════════════════════════════════════════════

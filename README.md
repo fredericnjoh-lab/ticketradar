@@ -114,6 +114,11 @@ Copy `.env.example` to `.env` and fill in the values:
 | `SEATGEEK_CLIENT_SECRET` | Yes      | SeatGeek API client secret                  |
 | `TICKETMASTER_API_KEY`   | Yes      | Ticketmaster Discovery API key              |
 | `ANTHROPIC_API_KEY`      | No       | Anthropic API key (enables AI features)     |
+| `STRIPE_SECRET_KEY`      | No       | Stripe secret key (enables payments)        |
+| `STRIPE_WEBHOOK_SECRET`  | No       | Stripe webhook signing secret               |
+| `STRIPE_PRO_PRICE_ID`    | No       | Stripe Price ID for the Pro subscription    |
+| `SUPABASE_URL`           | No       | Supabase project URL (for Stripe webhook)   |
+| `SUPABASE_SERVICE_KEY`   | No       | Supabase service role key (for plan updates)|
 | `SHEET_URL`              | No       | Google Sheet CSV export URL for custom data |
 | `ALLOWED_ORIGIN`         | Yes      | Frontend origin for CORS                    |
 | `BACKEND_URL`            | No       | Public backend URL (used by Telegram webhook) |
@@ -161,6 +166,14 @@ Copy `.env.example` to `.env` and fill in the values:
 |--------|------------|----------------------------------------------|
 | POST   | `/api/ai`  | Claude-powered market analysis (body: `{ question, context }`) |
 
+### Payments (Stripe)
+
+| Method | Path                    | Description                                          |
+|--------|-------------------------|------------------------------------------------------|
+| GET    | `/api/plans`            | Returns Free and Pro plan details                    |
+| POST   | `/api/create-checkout`  | Creates a Stripe checkout session (body: `{ email, userId }`) |
+| POST   | `/api/webhook/stripe`   | Stripe webhook — updates user plan on payment success |
+
 ---
 
 ## Project Structure
@@ -174,6 +187,7 @@ ticketradar/
 ├── supabase.js         — Database & auth client
 ├── styles.v6.css       — Design system (dark theme)
 ├── server.js           — Express backend
+├── package.json        — Node.js dependencies
 ├── sw.js               — Service Worker (offline/PWA)
 ├── manifest.json       — PWA manifest
 ├── .env.example        — Environment variable template
