@@ -886,15 +886,15 @@ app.post('/api/ai', async (req, res) => {
   }
 
   const { question, context } = req.body;
-  if (!question || typeof question !== 'string' || question.length > 500) {
-    return res.status(400).json({ error: 'question requise (max 500 caractères)' });
+  if (!question || typeof question !== 'string' || question.length > 3000) {
+    return res.status(400).json({ error: 'question requise (max 3000 caractères)' });
   }
 
   try {
     const requestBody = {
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 400,
-      system: `You are a ticket resale expert. Current market context: ${(context || '').slice(0, 1000)}. Detect the language of the user's question and always respond in that same language. Keep answers to 2-3 sentences max, direct and actionable.`,
+      max_tokens: 800,
+      system: `You are a smart assistant. If the context mentions "Goal tracker" or "coach", act as a personal goal coach — give concrete, actionable advice. Otherwise, act as a ticket resale expert. Context: ${(context || '').slice(0, 1000)}. Detect the language of the user's question and always respond in that same language. Keep answers concise, direct and actionable.`,
       messages: [{ role: 'user', content: String(question) }],
     };
     console.log('[AI] Request body:', JSON.stringify(requestBody, null, 2));
