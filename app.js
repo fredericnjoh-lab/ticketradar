@@ -1826,7 +1826,7 @@ function renderGoals(c) {
 ══════════════════════════════════════════════ */
 function renderPricing(c) {
   const fr = S.lang === 'fr';
-  const userPlan = (S.user && S.user.plan) || 'free';
+  const userPlan = (window.currentUser && window.currentUser.plan) || 'free';
 
   const freeName = 'Free';
   const proName  = 'Pro';
@@ -1873,15 +1873,15 @@ async function startProCheckout() {
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) { toast(fr?'Configure le backend':'Configure backend URL','⚠'); return; }
 
-  const email = S.user?.email;
-  if (!email) { toast(fr?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
+  const user = window.currentUser;
+  if (!user?.email) { toast(fr?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
 
   try {
     toast(fr?'Redirection vers Stripe...':'Redirecting to Stripe...','💳');
     const res = await fetch(backendUrl + '/api/create-checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, userId: S.user?.id || '' })
+      body: JSON.stringify({ email: user.email, userId: user.id || '' })
     });
     const data = await res.json();
     if (data.url) {
@@ -2276,8 +2276,12 @@ function toggleUserMenu() {
   if (emailEl) {
     const kanbanCount = Object.values(S.kanban).flat().length;
     const wlCount = S.wl.length;
+    const plan = user.plan || 'free';
+    const planBadge = plan === 'pro'
+      ? '<span style="background:var(--v6-purple);color:#fff;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700">PRO</span>'
+      : '<span style="background:var(--v6-border);color:var(--v6-t3);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600">FREE</span>';
     emailEl.innerHTML = `
-      <div style="font-weight:600;color:var(--t1);margin-bottom:4px">${user.email}</div>
+      <div style="font-weight:600;color:var(--t1);margin-bottom:4px">${user.email} ${planBadge}</div>
       <div style="color:var(--t4);font-size:9px">
         🗂 ${kanbanCount} Kanban · ★ ${wlCount} Watchlist
       </div>
@@ -2292,29 +2296,20 @@ function closeUserMenu() {
 }
 
 async function doSignOut() {
-  try {
-    closeUserMenu();
-    await sbSignOut();
-    window.currentUser = null;
-    updateUserBtn();
-    // Reset local state
-    S.kanban = { watch: [], bought: [], selling: [], sold: [] };
-    S.wl = [];
-    S.customEvents = [];
-    saveState();
-    toast(S.lang==='fr'?'À bientôt !':'See you!', '👋');
-    render();
-    // Show auth modal after short delay
-    setTimeout(showAuthModal, 800);
-  } catch(err) {
-    console.error('[Auth] Signout error:', err);
-    // Force signout even if error
-    window.currentUser = null;
-    updateUserBtn();
-    toast(S.lang==='fr'?'Déconnecté':'Signed out', '👋');
-    render();
-    setTimeout(showAuthModal, 800);
-  }
+  closeUserMenu();
+  // Always force-clear local state regardless of API result
+  try { await sbSignOut(); } catch(err) { console.warn('[Auth] Signout API error:', err.message); }
+  window.currentUser = null;
+  // Reset local state
+  S.kanban = { watch: [], bought: [], selling: [], sold: [] };
+  S.wl = [];
+  S.customEvents = [];
+  saveState();
+  updateUserBtn();
+  toast(S.lang==='fr'?'À bientôt !':'See you!', '👋');
+  render();
+  // Show auth modal after short delay
+  setTimeout(showAuthModal, 800);
 }
 
 // Close menu on outside click
@@ -2337,10 +2332,28 @@ function init() {
   fetchLiveFX();
   applyTheme(); // Apply saved theme
   // Check if user is logged in
-  sbGetUser().then(user => {
+  sbGetUser().then(async user => {
     if (user) {
       window.currentUser = user;
       updateUserBtn();
+      // Load profile to get plan info
+      try {
+        const profile = await sbGetProfile(user.id);
+        if (profile && window.currentUser) {
+          window.currentUser.plan = profile.plan || 'free';
+        }
+      } catch(e) {}
+      // Handle Stripe redirect
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('upgrade') === 'success') {
+        window.currentUser.plan = 'pro';
+        toast(S.lang==='fr'?'Bienvenue dans le plan Pro !':'Welcome to Pro!','💎');
+        window.history.replaceState({}, '', window.location.pathname);
+        render();
+      } else if (params.get('upgrade') === 'cancel') {
+        toast(S.lang==='fr'?'Paiement annulé':'Payment cancelled','ℹ');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     } else {
       // Show auth modal after 1 second
       setTimeout(showAuthModal, 1000);

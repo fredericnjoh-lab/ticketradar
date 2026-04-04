@@ -287,6 +287,10 @@ async function loadUserData(userId) {
         sbUpdateProfile(userId, { sheet_url: S.sheetUrl }).catch(() => {});
       }
       if (profile.tg_chat_id && !S.tgChatId) S.tgChatId = profile.tg_chat_id;
+      // Store plan on currentUser so Pricing page can read it
+      if (window.currentUser) {
+        window.currentUser.plan = profile.plan || 'free';
+      }
     }
     if (watchlist.length)    S.wl           = watchlist;
     if (Object.values(kanban).flat().length) S.kanban = kanban;
