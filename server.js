@@ -17,7 +17,8 @@ const express    = require('express');
 const cors       = require('cors');
 const axios      = require('axios');
 const rateLimit  = require('express-rate-limit');
-const Stripe     = require('stripe');
+let Stripe;
+try { Stripe = require('stripe'); } catch(e) { console.warn('⚠ Module stripe non installé — paiements désactivés'); }
 require('dotenv').config();
 
 const app  = express();
@@ -39,7 +40,7 @@ const ANTHROPIC_API_KEY      = process.env.ANTHROPIC_API_KEY      || '';
 const STRIPE_SECRET_KEY     = process.env.STRIPE_SECRET_KEY     || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const STRIPE_PRO_PRICE_ID   = process.env.STRIPE_PRO_PRICE_ID  || '';
-const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+const stripe = (Stripe && STRIPE_SECRET_KEY) ? new Stripe(STRIPE_SECRET_KEY) : null;
 
 if (!SEATGEEK_CLIENT_ID)   console.warn('⚠ SEATGEEK_CLIENT_ID manquant — /api/scan limité');
 if (!TICKETMASTER_API_KEY) console.warn('⚠ TICKETMASTER_API_KEY manquant — /api/scan limité');
