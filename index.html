@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>TicketRadar</title>
-  <link rel="stylesheet" href="./styles.v6.css?v=20260403">
+  <link rel="stylesheet" href="./styles.v6.css?v=20260405">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -37,7 +37,6 @@
     <div class="sb-item npill" id="nav-compare" onclick="nav('compare',this)"><span class="sbi-dot"></span> Comparer</div>
     <div class="sb-item npill" id="nav-roi" onclick="nav('roi',this)"><span class="sbi-dot"></span> ROI Calc</div>
     <div class="sb-item npill" id="nav-add" onclick="nav('add',this)"><span class="sbi-dot"></span> + Ajouter</div>
-    <div class="sb-item npill" id="nav-pricing" onclick="nav('pricing',this)"><span class="sbi-dot" style="background:var(--v6-purple)"></span> Pricing 💎</div>
     <div class="sb-item npill" id="nav-settings" onclick="nav('settings',this)"><span class="sbi-dot"></span> Config ⚙</div>
     <div class="sbv6-section-lbl">SEUIL ALERTE</div>
     <div class="sbv6-seuil">
@@ -56,7 +55,7 @@
         <div class="sbv6-avatar" id="user-btn">👤</div>
         <div>
           <div style="font-size:12px;color:var(--v6-t1);font-weight:500" id="user-email-sb">Mon compte</div>
-          <div style="font-size:9px;color:var(--v6-teal);font-family:monospace">● local</div>
+          <div style="font-size:9px;font-family:monospace" id="user-status-sb">● local</div>
         </div>
       </div>
     </div>
@@ -77,6 +76,7 @@
           <button class="lang-btn active" id="lang-fr" onclick="setLang('fr')">FR</button>
           <button class="lang-btn" id="lang-en" onclick="setLang('en')">EN</button>
         </div>
+        <button onclick="nav('pricing',this)" style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);color:#A78BFA;padding:5px 14px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--v6-font-mono,monospace);white-space:nowrap">💎 Pro</button>
         <button class="theme-btn" id="theme-btn" onclick="toggleTheme()">☀️</button>
         <div id="notif-btn" class="tbv6-notif">🔔<span id="notif-count" style="display:none;background:var(--v6-red);color:#fff;border-radius:50%;font-size:8px;padding:1px 4px;margin-left:2px">0</span></div>
         <button class="scan-btn" id="scan-btn" onclick="runScan()"><span id="scan-ic">⟳</span> <span id="scan-lbl">Scanner</span></button>
@@ -123,9 +123,9 @@
   <button onclick="doSignOut()" style="width:100%;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px;padding:10px;color:#FF5E5E;font-size:12px;font-weight:600;cursor:pointer">👋 Se déconnecter</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="./config.js?v=20260403"></script>
-<script src="./components.js?v=20260403"></script>
-<script src="./app.js?v=20260403"></script>
-<script src="./supabase.js?v=20260403"></script>
+<script src="./config.js?v=20260405"></script>
+<script src="./components.js?v=20260405"></script>
+<script src="./app.js?v=20260405"></script>
+<script src="./supabase.js?v=20260405"></script>
 </body>
 </html>

@@ -451,7 +451,6 @@ function applyLang() {
     'nav-compare':  fr ? 'Comparer'       : 'Compare',
     'nav-roi':      fr ? 'ROI Calc'       : 'ROI Calc',
     'nav-add':      fr ? '+ Ajouter'      : '+ Add',
-    'nav-pricing':  fr ? 'Tarifs 💎'      : 'Pricing 💎',
     'nav-settings': fr ? 'Config ⚙'       : 'Settings ⚙',
   };
   Object.entries(navMap).forEach(([id, label]) => {
@@ -531,13 +530,7 @@ function updateTopbarKpis() {
   if (tbScans) tbScans.textContent = all.length;
   if (tbOpps)  tbOpps.textContent  = all.filter(e => e.marge >= 100).length;
   if (tbRoi)   tbRoi.textContent   = '+' + (all.length ? Math.round(all.reduce((a,e)=>a+e.marge,0)/all.length) : 0) + '%';
-  const user = window.currentUser;
-  if (sbUname)  sbUname.textContent  = user ? (user.email?.split('@')[0] || 'user') : 'Non connecté';
-  if (sbStatus) { sbStatus.textContent = user ? '● connecté' : '● offline'; sbStatus.style.color = user ? 'var(--teal)' : 'var(--t4)'; }
-  if (sbAvatar) sbAvatar.textContent = user ? (user.email?.slice(0,1).toUpperCase() || '?') : '?';
-  // Update sidebar user info
-  const emailSb = document.getElementById('user-email-sb');
-  if (emailSb && user) emailSb.textContent = (user.email||'').split('@')[0];
+  updateUserBtn();
 }
 
 /* ══════════════════════════════════════════════
@@ -2253,23 +2246,32 @@ async function submitAuth() {
 
 function updateUserBtn() {
   const btn = document.getElementById('user-btn');
-  if (!btn) return;
+  const emailSb = document.getElementById('user-email-sb');
+  const statusSb = document.getElementById('user-status-sb');
   const user = window.currentUser;
   if (user) {
     const letter = user.email?.slice(0,1).toUpperCase() || '?';
-    btn.textContent = letter;
-    btn.style.background = 'var(--gold)';
-    btn.style.color = 'var(--bg0)';
-    btn.style.fontFamily = 'var(--font-head)';
-    btn.style.fontWeight = '800';
-    btn.style.fontSize = '13px';
-    btn.title = user.email;
+    if (btn) {
+      btn.textContent = letter;
+      btn.style.background = 'var(--gold)';
+      btn.style.color = 'var(--bg0)';
+      btn.style.fontFamily = 'var(--font-head)';
+      btn.style.fontWeight = '800';
+      btn.style.fontSize = '13px';
+      btn.title = user.email;
+    }
+    if (emailSb) emailSb.textContent = user.email?.split('@')[0] || 'user';
+    if (statusSb) { statusSb.textContent = '● ' + (S.lang==='fr'?'connecte':'connected'); statusSb.style.color = 'var(--v6-teal)'; }
   } else {
-    btn.textContent = '👤';
-    btn.style.background = 'var(--goldbg)';
-    btn.style.color = 'var(--gold2)';
-    btn.style.fontWeight = '';
-    btn.title = 'Se connecter';
+    if (btn) {
+      btn.textContent = '👤';
+      btn.style.background = 'var(--goldbg)';
+      btn.style.color = 'var(--gold2)';
+      btn.style.fontWeight = '';
+      btn.title = 'Se connecter';
+    }
+    if (emailSb) emailSb.textContent = S.lang==='fr'?'Mon compte':'My account';
+    if (statusSb) { statusSb.textContent = '● local'; statusSb.style.color = 'var(--v6-t3)'; }
   }
 }
 
