@@ -327,6 +327,9 @@ async function scanLiveData(query = '', seuil = 0) {
         match.marge  = match.face > 0 ? Math.round(((net - match.face) / match.face) * 100) : 0;
         match.live   = true;
         match.source = live.source;
+        // Spotify enrichment from backend
+        if (live.spotify_popularity) match.spotify_popularity = live.spotify_popularity;
+        if (live.spotify_followers)  match.spotify_followers  = live.spotify_followers;
         updated++;
       } else if (((live.face > 0 && live.marge > 0) || live.discovered === true) && !existingNames.has(live.name.toLowerCase().slice(0,20))) {
         // Add new event discovered via API
