@@ -962,8 +962,11 @@ app.get('/api/plans', (req, res) => {
 
 /* ── POST /api/create-checkout ── */
 app.post('/api/create-checkout', async (req, res) => {
-  if (!stripe || !STRIPE_PRO_PRICE_ID) {
-    return res.status(503).json({ error: 'Stripe non configuré' });
+  if (!stripe) {
+    return res.status(503).json({ error: 'Stripe non configuré — STRIPE_SECRET_KEY manquant' });
+  }
+  if (!STRIPE_PRO_PRICE_ID || !STRIPE_PRO_PRICE_ID.startsWith('price_')) {
+    return res.status(503).json({ error: 'STRIPE_PRO_PRICE_ID manquant ou invalide. Crée un prix dans Stripe Dashboard et ajoute l\'ID (price_xxx) dans les env vars.' });
   }
 
   const { email, userId } = req.body;
@@ -982,7 +985,10 @@ app.post('/api/create-checkout', async (req, res) => {
     res.json({ url: session.url });
   } catch (err) {
     console.error('[Stripe] Erreur checkout:', err.message);
-    res.status(500).json({ error: err.message });
+    const msg = err.message.includes('No such price')
+      ? `Price ID invalide : "${STRIPE_PRO_PRICE_ID}". Vérifie dans Stripe Dashboard > Products > Price ID.`
+      : err.message;
+    res.status(500).json({ error: msg });
   }
 });
 
