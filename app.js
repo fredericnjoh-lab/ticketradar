@@ -290,7 +290,7 @@ async function scanLiveData(query = '', seuil = 0) {
       seuil:  seuil || S.seuil || 0,
       limit:  50,
       source: 'all',
-      sheet:  'false', // on gère le sheet côté frontend
+      sheet:  'true', // include sheet for Last.fm enrichment
     });
     if (query) params.set('q', query);
 
