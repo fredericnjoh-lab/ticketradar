@@ -37,9 +37,9 @@ const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET || '';
 const TICKETMASTER_API_KEY   = process.env.TICKETMASTER_API_KEY   || '';
 const ANTHROPIC_API_KEY      = process.env.ANTHROPIC_API_KEY      || '';
 
-const STRIPE_SECRET_KEY     = process.env.STRIPE_SECRET_KEY     || '';
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
-const STRIPE_PRO_PRICE_ID   = process.env.STRIPE_PRO_PRICE_ID  || '';
+const STRIPE_SECRET_KEY     = (process.env.STRIPE_SECRET_KEY     || '').trim();
+const STRIPE_WEBHOOK_SECRET = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+const STRIPE_PRO_PRICE_ID   = (process.env.STRIPE_PRO_PRICE_ID  || '').trim();
 const stripe = (Stripe && STRIPE_SECRET_KEY) ? new Stripe(STRIPE_SECRET_KEY) : null;
 
 if (!SEATGEEK_CLIENT_ID)   console.warn('⚠ SEATGEEK_CLIENT_ID manquant — /api/scan limité');
