@@ -565,6 +565,7 @@ function buildMobileCards(evs) {
           <span class="mec-pill">${e.discovered && !e.resale ? 'Prix TBD' : 'Revente: '+e.resale+'€'}</span>
           ${e.live ? '<span class="mec-pill" style="color:var(--green);border-color:var(--greenbdr)">📡 Live</span>' : ''}
           ${drop && dpct <= -5 ? `<span class="mec-pill" style="color:var(--red);border-color:var(--redbdr)">📉 ${dpct}%</span>` : ''}
+          ${e.spotify_popularity ? `<span class="mec-pill" style="color:${e.spotify_popularity>70?'#1DB954':'var(--t3)'};border-color:${e.spotify_popularity>70?'rgba(29,185,52,.3)':'var(--b3)'}">🎵 ${e.spotify_popularity}</span>` : ''}
         </div>
         <div class="mec-row">
           <span class="mec-pill">${e.platform||'—'}</span>
@@ -593,6 +594,7 @@ function buildTable(evs) {
       ${th('resale','REVENTE')}
       ${th('marge','MARGE ↓')}
       ${th('score','SCORE')}
+      <th>🎵</th>
       <th>PLATEFORME</th>
       <th>ACTIONS</th>
     </tr></thead>
@@ -615,6 +617,7 @@ function buildTable(evs) {
       <td class="mr" style="color:${drop&&dpct<=-5?'var(--red)':'var(--t1)'}">${e.discovered && !e.resale ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.resale.toLocaleString()+'€'}${drop&&dpct<=-5?` <span style="font-size:9px;color:var(--red)">(${dpct}%)</span>`:''}</td>
       <td>${e.discovered && !e.marge ? '<span style="color:var(--t3);font-style:italic">—</span>' : `<span class="mb ${mc(e.marge)}">+${e.marge}%</span>`}</td>
       <td><div style="display:flex;align-items:center;gap:6px"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
+      <td>${e.spotify_popularity ? `<div style="display:flex;align-items:center;gap:4px" title="Spotify: ${e.spotify_popularity}/100 · ${(e.spotify_followers||0).toLocaleString()} followers"><span style="color:${e.spotify_popularity>70?'#1DB954':e.spotify_popularity>40?'var(--gold2)':'var(--t4)'};font-size:10px;font-weight:700;font-family:var(--font-mono)">${e.spotify_popularity}</span><div style="width:28px;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden"><div style="width:${e.spotify_popularity}%;height:100%;background:${e.spotify_popularity>70?'#1DB954':e.spotify_popularity>40?'var(--gold2)':'var(--t4)'}"></div></div></div>` : '<span style="color:var(--t4);font-size:9px">—</span>'}</td>
       <td><span class="plat-tag">${e.platform}</span></td>
       <td>
         <div style="display:flex;gap:4px;align-items:center">
