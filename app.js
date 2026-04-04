@@ -451,6 +451,7 @@ function applyLang() {
     'nav-compare':  fr ? 'Comparer'       : 'Compare',
     'nav-roi':      fr ? 'ROI Calc'       : 'ROI Calc',
     'nav-add':      fr ? '+ Ajouter'      : '+ Add',
+    'nav-profile':  fr ? 'Profil 👤'      : 'Profile 👤',
     'nav-settings': fr ? 'Config ⚙'       : 'Settings ⚙',
   };
   Object.entries(navMap).forEach(([id, label]) => {
@@ -938,6 +939,7 @@ function render() {
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'goals') renderGoals(c);
   else if (S.view === 'pricing') renderPricing(c);
+  else if (S.view === 'profile') renderProfile(c);
   else if (S.view === 'settings') renderSettings(c);
 }
 
@@ -1818,6 +1820,272 @@ function renderGoals(c) {
         </div>`;
       }).join('')}
   `;
+}
+
+/* ══════════════════════════════════════════════
+   PROFILE
+══════════════════════════════════════════════ */
+function renderProfile(c) {
+  const fr = S.lang === 'fr';
+  const user = window.currentUser;
+
+  if (!user) {
+    c.innerHTML = `<div class="card" style="text-align:center;padding:60px 24px">
+      <div style="font-size:48px;margin-bottom:16px">👤</div>
+      <h3 style="margin-bottom:8px">${fr?'Non connecte':'Not signed in'}</h3>
+      <p style="color:var(--t3);margin-bottom:24px;font-size:13px">${fr?'Connecte-toi pour acceder a ton profil':'Sign in to access your profile'}</p>
+      <button onclick="showAuthModal()" style="background:var(--teal);color:var(--bg0);border:none;padding:12px 28px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">${fr?'Se connecter':'Sign in'}</button>
+    </div>`;
+    return;
+  }
+
+  const initials = (user.email || '??').slice(0, 2).toUpperCase();
+  const plan = user.plan || 'free';
+  const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString(fr?'fr-FR':'en-US', { year:'numeric', month:'long', day:'numeric' }) : '—';
+
+  const planBadge = plan === 'pro'
+    ? '<span style="background:var(--v6-purple);color:#fff;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700">PRO</span>'
+    : '<span style="background:var(--bg4);color:var(--t3);padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid var(--b3)">FREE</span>';
+
+  const mkts = S.markets || { us: true, uk: true, eu: true };
+
+  c.innerHTML = `
+    <div style="max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
+
+      <!-- PROFILE HEADER -->
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:20px;padding:8px 0">
+          <div style="width:64px;height:64px;min-width:64px;border-radius:16px;background:linear-gradient(135deg,var(--teal),var(--v6-blue));display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:var(--bg0);font-family:var(--font-head)">${initials}</div>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+              <input id="prof-name" value="${user.display_name || user.email?.split('@')[0] || ''}" placeholder="${fr?'Nom d\'affichage':'Display name'}" style="background:transparent;border:1px solid var(--b3);border-radius:6px;padding:6px 10px;color:var(--t1);font-size:15px;font-weight:700;width:200px" onchange="saveProfileName(this.value)">
+              ${planBadge}
+            </div>
+            <div style="font-size:12px;color:var(--t3);font-family:var(--font-mono)">${user.email}</div>
+            <div style="font-size:11px;color:var(--t4);margin-top:4px">${fr?'Membre depuis':'Member since'} ${memberSince}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CURRENT PLAN -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Mon abonnement':'My Plan'}</span>
+          ${planBadge}
+        </div>
+        ${plan === 'pro' ? `
+          <div style="padding:12px 0">
+            <div style="color:var(--t2);font-size:13px;margin-bottom:12px">${fr?'Plan Pro actif — 49€/mois':'Pro plan active — 49€/month'}</div>
+            <div style="display:flex;gap:10px">
+              <button onclick="window.open('https://billing.stripe.com/p/login/test','_blank')" style="background:var(--bg4);border:1px solid var(--b3);color:var(--t2);padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer">${fr?'Gerer mon abonnement':'Manage subscription'}</button>
+            </div>
+          </div>
+        ` : `
+          <div style="padding:12px 0">
+            <div style="color:var(--t3);font-size:13px;margin-bottom:4px">${fr?'Plan gratuit — fonctionnalites limitees':'Free plan — limited features'}</div>
+            <div style="color:var(--t4);font-size:11px;margin-bottom:16px">${fr?'Passe Pro pour l\'IA, les alertes Telegram et le scan auto':'Upgrade to Pro for AI, Telegram alerts and auto-scan'}</div>
+            <button onclick="startProCheckout()" style="background:var(--v6-purple);color:#fff;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">${fr?'Passer Pro — 49€/mois':'Upgrade to Pro — 49€/month'}</button>
+          </div>
+        `}
+      </div>
+
+      <!-- TELEGRAM CONFIG -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Telegram':'Telegram'}</span>
+          <span class="card-meta">${S.tgChatId ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--t4)">—</span>'}</span>
+        </div>
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px">
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Chat ID</div>
+            <div style="display:flex;gap:8px">
+              <input id="prof-chatid" value="${S.tgChatId||''}" placeholder="123456789" style="flex:1;background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:8px 12px;color:var(--t1);font-size:13px;font-family:var(--font-mono)">
+              <button onclick="profileTestTg()" style="background:var(--bg4);border:1px solid var(--b3);color:var(--t2);padding:8px 14px;border-radius:6px;font-size:11px;cursor:pointer;white-space:nowrap">🧪 Test</button>
+              <button onclick="profileSaveTg()" style="background:var(--teal);color:var(--bg0);border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">${fr?'Sauver':'Save'}</button>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--t4)">${fr?'Ton Chat ID Telegram pour recevoir les alertes. Envoie /start a @userinfobot pour le trouver.':'Your Telegram Chat ID for alerts. Send /start to @userinfobot to find it.'}</div>
+        </div>
+      </div>
+
+      <!-- CHANGE PASSWORD -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Changer le mot de passe':'Change Password'}</span>
+        </div>
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px">
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${fr?'NOUVEAU MOT DE PASSE':'NEW PASSWORD'}</div>
+            <input id="prof-newpwd" type="password" placeholder="${fr?'Minimum 6 caracteres':'Minimum 6 characters'}" style="width:100%;background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:8px 12px;color:var(--t1);font-size:13px;box-sizing:border-box">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${fr?'CONFIRMER':'CONFIRM'}</div>
+            <input id="prof-confirmpwd" type="password" placeholder="${fr?'Repete le mot de passe':'Repeat password'}" style="width:100%;background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:8px 12px;color:var(--t1);font-size:13px;box-sizing:border-box">
+          </div>
+          <button onclick="profileChangePassword()" style="align-self:flex-start;background:var(--bg4);border:1px solid var(--b3);color:var(--t1);padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">${fr?'Mettre a jour':'Update password'}</button>
+        </div>
+      </div>
+
+      <!-- PREFERENCES -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Preferences':'Preferences'}</span>
+        </div>
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:16px">
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${fr?'SEUIL MARGE MINIMUM':'MIN MARGIN THRESHOLD'}</div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <input type="range" id="prof-seuil" min="0" max="300" step="5" value="${S.seuil}" oninput="document.getElementById('prof-seuil-val').textContent='+'+this.value+'%'" style="flex:1;accent-color:var(--v6-teal)">
+              <span id="prof-seuil-val" style="font-family:var(--font-mono);font-size:13px;color:var(--teal);min-width:50px">+${S.seuil}%</span>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${fr?'LANGUE':'LANGUAGE'}</div>
+            <div style="display:flex;gap:8px">
+              <button onclick="profileSetLang('fr')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${S.lang==='fr'?'var(--teal)':'var(--b3)'};background:${S.lang==='fr'?'rgba(45,212,160,.1)':'var(--bg3)'};color:${S.lang==='fr'?'var(--teal)':'var(--t3)'}">🇫🇷 Francais</button>
+              <button onclick="profileSetLang('en')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${S.lang==='en'?'var(--teal)':'var(--b3)'};background:${S.lang==='en'?'rgba(45,212,160,.1)':'var(--bg3)'};color:${S.lang==='en'?'var(--teal)':'var(--t3)'}">🇬🇧 English</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${fr?'MARCHES':'MARKETS'}</div>
+            <div style="display:flex;gap:12px">
+              ${['US','UK','EU'].map(m => `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--t2)">
+                <input type="checkbox" id="prof-mkt-${m.toLowerCase()}" ${mkts[m.toLowerCase()]!==false?'checked':''} onchange="profileToggleMarket('${m.toLowerCase()}')" style="accent-color:var(--v6-teal)"> ${m}
+              </label>`).join('')}
+            </div>
+          </div>
+          <button onclick="profileSavePrefs()" style="align-self:flex-start;background:var(--teal);color:var(--bg0);border:none;padding:8px 20px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">${fr?'Sauvegarder':'Save preferences'}</button>
+        </div>
+      </div>
+
+      <!-- DANGER ZONE -->
+      <div class="card" style="border:1px solid rgba(255,94,94,.15)">
+        <div class="card-head">
+          <span class="card-title" style="color:var(--red)">${fr?'Zone dangereuse':'Danger Zone'}</span>
+        </div>
+        <div style="padding:8px 0">
+          <div style="color:var(--t3);font-size:12px;margin-bottom:12px">${fr?'Supprime definitivement ton compte et toutes tes donnees. Cette action est irreversible.':'Permanently delete your account and all data. This action cannot be undone.'}</div>
+          <button onclick="profileConfirmDelete()" style="background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);color:var(--red);padding:10px 20px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">${fr?'Supprimer mon compte':'Delete my account'}</button>
+        </div>
+      </div>
+
+    </div>`;
+}
+
+/* ── Profile actions ── */
+
+async function saveProfileName(name) {
+  const user = window.currentUser;
+  if (!user) return;
+  try {
+    user.display_name = name;
+    await sbUpdateProfile(user.id, { display_name: name });
+    toast(S.lang==='fr'?'Nom sauvegarde ✓':'Name saved ✓', '✓');
+  } catch(e) { toast('Erreur: '+e.message, '⚠'); }
+}
+
+async function profileTestTg() {
+  const chatId = document.getElementById('prof-chatid')?.value.trim();
+  if (!chatId) { toast(S.lang==='fr'?'Entre ton Chat ID':'Enter Chat ID','⚠'); return; }
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) { toast(S.lang==='fr'?'Backend non configure':'Backend not configured','⚠'); return; }
+  try {
+    const res = await fetch(backendUrl + '/api/notify', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ events:[], drops:[], seuil:0, chatId, test:true })
+    });
+    const d = await res.json();
+    if (res.ok) toast(S.lang==='fr'?'✓ Message Telegram envoye !':'✓ Telegram message sent!','📱');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||'unknown'),'⚠');
+  } catch(e) { toast('Erreur: '+e.message,'⚠'); }
+}
+
+async function profileSaveTg() {
+  const chatId = document.getElementById('prof-chatid')?.value.trim();
+  if (!chatId) { toast(S.lang==='fr'?'Entre ton Chat ID':'Enter Chat ID','⚠'); return; }
+  S.tgChatId = chatId;
+  saveState();
+  const user = window.currentUser;
+  if (user) {
+    try { await sbUpdateProfile(user.id, { tg_chat_id: chatId }); } catch(e) {}
+  }
+  toast(S.lang==='fr'?'Chat ID sauvegarde ✓':'Chat ID saved ✓','📱');
+  render();
+}
+
+async function profileChangePassword() {
+  const fr = S.lang === 'fr';
+  const newPwd = document.getElementById('prof-newpwd')?.value;
+  const confirmPwd = document.getElementById('prof-confirmpwd')?.value;
+  if (!newPwd || newPwd.length < 6) { toast(fr?'6 caracteres minimum':'6 characters minimum','⚠'); return; }
+  if (newPwd !== confirmPwd) { toast(fr?'Les mots de passe ne correspondent pas':'Passwords don\'t match','⚠'); return; }
+  try {
+    const { error } = await sb.auth.updateUser({ password: newPwd });
+    if (error) throw error;
+    document.getElementById('prof-newpwd').value = '';
+    document.getElementById('prof-confirmpwd').value = '';
+    toast(fr?'Mot de passe mis a jour ✓':'Password updated ✓','🔒');
+  } catch(e) { toast('Erreur: '+e.message,'⚠'); }
+}
+
+function profileSetLang(lang) {
+  S.lang = lang;
+  saveState();
+  applyLang();
+  render();
+}
+
+function profileToggleMarket(mkt) {
+  if (!S.markets) S.markets = { us: true, uk: true, eu: true };
+  S.markets[mkt] = !S.markets[mkt];
+}
+
+async function profileSavePrefs() {
+  const fr = S.lang === 'fr';
+  S.seuil = parseInt(document.getElementById('prof-seuil')?.value) || 30;
+  const seuilEl = document.getElementById('seuil');
+  const seuilVal = document.getElementById('seuil-val');
+  if (seuilEl) seuilEl.value = S.seuil;
+  if (seuilVal) seuilVal.textContent = '+' + S.seuil + '%';
+  saveState();
+  const user = window.currentUser;
+  if (user) {
+    try { await sbUpdateProfile(user.id, { seuil: S.seuil, lang: S.lang }); } catch(e) {}
+  }
+  toast(fr?'Preferences sauvegardees ✓':'Preferences saved ✓','✓');
+  render();
+}
+
+function profileConfirmDelete() {
+  const fr = S.lang === 'fr';
+  const msg = fr
+    ? 'Es-tu SUR de vouloir supprimer ton compte ? Toutes tes donnees seront perdues. Tape "SUPPRIMER" pour confirmer.'
+    : 'Are you SURE you want to delete your account? All data will be lost. Type "DELETE" to confirm.';
+  const confirm = prompt(msg);
+  if (confirm === (fr ? 'SUPPRIMER' : 'DELETE')) {
+    profileDeleteAccount();
+  }
+}
+
+async function profileDeleteAccount() {
+  const fr = S.lang === 'fr';
+  const user = window.currentUser;
+  if (!user) return;
+  try {
+    // Delete user data from Supabase tables
+    await Promise.allSettled([
+      sb.from('watchlist').delete().eq('user_id', user.id),
+      sb.from('kanban').delete().eq('user_id', user.id),
+      sb.from('price_history').delete().eq('user_id', user.id),
+      sb.from('custom_events').delete().eq('user_id', user.id),
+      sb.from('profiles').delete().eq('id', user.id),
+    ]);
+    // Sign out
+    await doSignOut();
+    toast(fr?'Compte supprime':'Account deleted','👋');
+  } catch(e) {
+    toast('Erreur: '+e.message,'⚠');
+  }
 }
 
 /* ══════════════════════════════════════════════
