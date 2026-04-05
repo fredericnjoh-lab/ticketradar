@@ -40,7 +40,7 @@ async function fetchLiveFX() {
     console.log('[FX] Taux mis à jour:', FX);
     // Refresh ROI view if active
     if (S.view === 'roi') render();
-  } catch(e) { console.warn('[FX] API indisponible, taux statiques utilisés'); }
+  } catch(e) { console.warn('[FX] API indisponible, taux statiques utilisés'); toast(S.lang==='fr'?'Taux de change statiques (API indisponible)':'Static FX rates (API unavailable)','ℹ'); }
 }
 
 /* ══════════════════════════════════════════════
@@ -540,8 +540,8 @@ function updateTopbarKpis() {
 
 function buildMobileCards(evs) {
   const fr = S.lang === 'fr';
-  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
-  return `<div class="mobile-cards-container" style="display:none">
+  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun evenement':'No events'}</div><button onclick="runScan()" style="margin-top:12px;background:var(--teal);color:var(--bg0);border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">⟳ ${fr?'Scanner maintenant':'Scan now'}</button></div>`;
+  return `<div class="mobile-cards-container">
     ${evs.map(e => {
       const drop = hasDrop(e);
       const dpct = dropPct(e);
@@ -580,7 +580,7 @@ function buildMobileCards(evs) {
 
 function buildTable(evs) {
   const fr = S.lang === 'fr';
-  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
+  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun evenement':'No events'}</div><button onclick="runScan()" style="margin-top:12px;background:var(--teal);color:var(--bg0);border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">⟳ ${fr?'Scanner maintenant':'Scan now'}</button></div>`;
   const th = (col, label) => `<th onclick="sortBy('${col}')" class="${S.sortCol===col?'sorted':''}">${label}${S.sortCol===col?(S.sortDir<0?' ↓':' ↑'):''}</th>`;
   return `<div class="tbl-wrap"><table>
     <thead><tr>
@@ -977,6 +977,20 @@ function renderDash(c) {
     ? ['Presale AMEX cette semaine ?','Meilleur moment vendre F1 Monaco ?','Top 3 signal ACHETER','Impact annulation sur prix ?']
     : ['AMEX presale this week?','Best time sell F1 Monaco?','Top 3 BUY signals','Cancellation price impact?'];
 
+  /* ── Onboarding check ── */
+  const hasUser = !!window.currentUser;
+  const hasSheet = S.sheetLoaded && all.length > 0;
+  const hasTg = !!S.tgChatId;
+  const hasKanban = Object.values(S.kanban).flat().length > 0;
+  const onboardDone = hasUser && hasSheet && hasTg && hasKanban;
+  const onboardSteps = [
+    { done: hasUser, title: fr?'Creer un compte':'Create an account', desc: fr?'Sauvegarde tes donnees dans le cloud':'Save your data to the cloud', action: hasUser?'':'showAuthModal()' },
+    { done: hasSheet, title: fr?'Configurer ta source de donnees':'Set up your data source', desc: fr?'Connecte un Google Sheet ou lance un scan':'Connect a Google Sheet or run a scan', action: hasSheet?'':"nav('settings',document.getElementById('nav-settings'))" },
+    { done: hasTg, title: fr?'Activer les alertes Telegram':'Enable Telegram alerts', desc: fr?'Recois les meilleures opportunites en temps reel':'Get top opportunities in real time', action: hasTg?'':"nav('profile',document.getElementById('nav-profile'))" },
+    { done: hasKanban, title: fr?'Ajouter ton premier ticket':'Add your first ticket', desc: fr?'Commence a tracker tes achats/ventes':'Start tracking your buys/sells', action: hasKanban?'':"nav('add',document.getElementById('nav-add'))" },
+  ];
+  const onboardPct = Math.round(onboardSteps.filter(s=>s.done).length / onboardSteps.length * 100);
+
   c.innerHTML = `
   <!-- ── ROW 0 : PAGE TITLE ── -->
   <div class="c-page-head">
@@ -985,6 +999,19 @@ function renderDash(c) {
       <div class="c-page-title">Predictive Intelligence <span style="color:var(--v6-teal)">Hybrid</span></div>
     </div>
   </div>
+
+  ${!onboardDone ? `
+  <!-- ── ONBOARDING ── -->
+  <div class="card" style="margin-bottom:16px;border:1px solid rgba(45,212,160,.15)">
+    <div class="card-head">
+      <span class="card-title">${fr?'Demarrage rapide':'Quick Start'}</span>
+      <span class="card-meta" style="color:var(--v6-teal)">${onboardPct}%</span>
+    </div>
+    <div style="height:4px;background:var(--v6-bg3);border-radius:2px;margin-bottom:14px;overflow:hidden"><div style="width:${onboardPct}%;height:100%;background:var(--v6-teal);border-radius:2px;transition:width .3s"></div></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${onboardSteps.map((s,i) => `<div class="onboard-step ${s.done?'done':''}" ${s.action?`onclick="${s.action}" style="cursor:pointer"`:''}><div class="onboard-check">${s.done?'✓':(i+1)}</div><div><div class="onboard-title">${s.title}</div><div class="onboard-desc">${s.desc}</div></div></div>`).join('')}
+    </div>
+  </div>` : ''}
 
   <!-- ── ROW 1 : KPI CARDS ── -->
   <div class="c-kpi-grid">
@@ -2382,17 +2409,23 @@ async function runScan() {
   const anim = setInterval(() => { if (ic) ic.textContent = frames[fi++ % 3]; }, 300);
 
   try {
+    const fr = S.lang === 'fr';
+
     // 1. Charger le sheet (données manuelles)
+    toast(fr?'1/4 — Chargement du sheet...':'1/4 — Loading sheet...','⟳');
     await loadSheet();
 
-    // 2. Scanner les APIs live (SeatGeek + Ticketmaster)
-    if (lbl) lbl.textContent = S.lang === 'fr' ? 'APIs...' : 'Live scan...';
+    // 2. Scanner les APIs live (SeatGeek + Ticketmaster + Last.fm)
+    if (lbl) lbl.textContent = fr ? 'APIs...' : 'Live scan...';
+    toast(fr?'2/4 — Scan SeatGeek + Ticketmaster + Last.fm...':'2/4 — Scanning SeatGeek + Ticketmaster + Last.fm...','📡');
     const liveCount = await scanLiveData('', S.seuil);
 
     // 3. Alertes Telegram
+    toast(fr?'3/4 — Envoi alertes Telegram...':'3/4 — Sending Telegram alerts...','📱');
     const tgSent = await sendTelegramDirect(allEvs(), S.seuil);
 
     // 4. Countdown J-7/J-3/J-1
+    toast(fr?'4/4 — Verification countdowns...':'4/4 — Checking countdowns...','⏰');
     await checkCountdownAlerts(allEvs());
 
     // 5. Presale alerts

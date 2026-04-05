@@ -8,6 +8,25 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <style>
+    /* Mobile: show cards, hide table */
+    @media(max-width:640px){
+      .tbl-wrap{display:none!important}
+      .mobile-cards-container{display:block!important}
+    }
+    /* Desktop: show table, hide cards */
+    @media(min-width:641px){
+      .mobile-cards-container{display:none!important}
+    }
+    /* Onboarding card */
+    .onboard-step{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:10px;background:var(--v6-bg2);border:1px solid var(--v6-b1);transition:border-color .2s}
+    .onboard-step:hover{border-color:var(--v6-teal)}
+    .onboard-step.done{opacity:.5}
+    .onboard-step.done .onboard-check{background:var(--v6-teal);color:var(--v6-bg0)}
+    .onboard-check{width:28px;height:28px;min-width:28px;border-radius:8px;border:1.5px solid var(--v6-b2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--v6-t4)}
+    .onboard-title{font-size:13px;font-weight:600;color:var(--v6-t1)}
+    .onboard-desc{font-size:11px;color:var(--v6-t3);margin-top:2px}
+  </style>
 </head>
 <body>
 <div class="toast" id="toast"></div>
