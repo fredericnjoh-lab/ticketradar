@@ -387,6 +387,16 @@ td { padding:11px 14px; vertical-align:middle; }
 .mmm-item { display:flex; flex-direction:column; align-items:center; gap:6px; padding:14px 8px; border-radius:12px; background:var(--bg2); border:1px solid var(--b1); cursor:pointer; -webkit-tap-highlight-color:transparent; transition:background .15s; font-size:11px; color:var(--t2); font-family:var(--font-body); font-weight:500; }
 .mmm-item:active { background:var(--bg5); }
 .mmm-icon { font-size:24px; }
+/* Mobile account button in topbar */
+.mobile-account-btn { display:none; width:36px; height:36px; border-radius:50%; border:1px solid var(--b2); background:var(--bg3); color:var(--t1); font-size:16px; cursor:pointer; -webkit-tap-highlight-color:transparent; transition:all .15s; flex-shrink:0; }
+.mobile-account-btn:active { background:var(--bg5); }
+/* Account section in More sheet */
+.mmm-account { margin-top:12px; padding-top:12px; border-top:1px solid var(--b1); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.mmm-email { font-family:var(--font-mono); font-size:11px; color:var(--t3); overflow:hidden; text-overflow:ellipsis; }
+.mmm-signin-btn { flex:1; padding:12px; border-radius:10px; border:none; background:var(--teal); color:var(--bg1); font-size:13px; font-weight:700; cursor:pointer; font-family:var(--font-head); -webkit-tap-highlight-color:transparent; }
+.mmm-signin-btn:active { filter:brightness(.9); }
+.mmm-signout-btn { flex:1; padding:12px; border-radius:10px; border:1px solid rgba(255,94,94,.2); background:rgba(255,94,94,.08); color:var(--red); font-size:12px; font-weight:600; cursor:pointer; font-family:var(--font-head); -webkit-tap-highlight-color:transparent; }
+.mmm-signout-btn:active { filter:brightness(.9); }
 body.light .mmm-overlay { background:rgba(0,0,0,.3); }
 body.light .mmm-sheet { background:var(--bg2); }
 .leaflet-container { background:var(--v6-bg2) !important; }
@@ -404,6 +414,7 @@ body.light .mmm-sheet { background:var(--bg2); }
   .tbv6-kpi { display:none; }
   .tbv6-kpi:first-child { display:flex; }
   /* Better touch targets */
+  .mobile-account-btn { display:flex; align-items:center; justify-content:center; }
   .form-input, .form-select { font-size:16px !important; padding:12px 14px !important; border-radius:10px !important; }
   .fchip { padding:8px 14px !important; font-size:12px !important; min-height:36px; }
   .card-head { padding:14px 16px; }

@@ -3221,8 +3221,27 @@ function toggleMobileMore() {
   const el = document.getElementById('mobile-more-menu');
   if (!el) return;
   el.classList.toggle('open');
+  updateMobileAccountUI();
 }
 window.toggleMobileMore = toggleMobileMore;
+
+function showAuthOverlay() {
+  showAuthModal();
+}
+window.showAuthOverlay = showAuthOverlay;
+
+function updateMobileAccountUI() {
+  const user = window.currentUser;
+  const signinBtn = document.getElementById('mmm-signin');
+  const signoutBtn = document.getElementById('mmm-signout');
+  const emailEl = document.getElementById('mmm-email');
+  const avatarBtn = document.getElementById('mob-avatar');
+  if (signinBtn) signinBtn.style.display = user ? 'none' : 'block';
+  if (signoutBtn) signoutBtn.style.display = user ? 'block' : 'none';
+  if (emailEl) emailEl.textContent = user ? user.email : '';
+  if (avatarBtn) avatarBtn.textContent = user ? '●' : '👤';
+}
+window.updateMobileAccountUI = updateMobileAccountUI;
 
 function setDashQ(q) {
   const el = document.getElementById('ai-q-dash');
