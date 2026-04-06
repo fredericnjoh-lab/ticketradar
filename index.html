@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>TicketRadar</title>
-  <link rel="stylesheet" href="./styles.v6.css?v=20260403">
+  <link rel="stylesheet" href="./styles.v6.css?v=20260403b">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -86,13 +86,27 @@
   </div>
 </div>
 <div class="mobile-nav" id="mobile-nav">
-  <button class="mnav-item active" id="mob-dash" onclick="nav('dash',this)"><span class="mnav-icon">📊</span><span class="mnav-label">Dashboard</span></button>
+  <button class="mnav-item active" id="mob-dash" onclick="nav('dash',this)"><span class="mnav-icon">📊</span><span class="mnav-label">Home</span></button>
   <button class="mnav-item" id="mob-events" onclick="nav('events',this)"><span class="mnav-icon">🎫</span><span class="mnav-label">Events</span></button>
-  <button class="mnav-item" id="mob-kanban" onclick="nav('kanban',this)"><span class="mnav-icon">📋</span><span class="mnav-label">Kanban</span></button>
   <button class="mnav-item" id="mob-goals" onclick="nav('goals',this)"><span class="mnav-icon">🎯</span><span class="mnav-label">Goals</span></button>
-  <button class="mnav-item" id="mob-pricing" onclick="nav('pricing',this)"><span class="mnav-icon">💎</span><span class="mnav-label">Pricing</span></button>
-  <button class="mnav-item" id="mob-ai" onclick="nav('ai',this)"><span class="mnav-icon">🤖</span><span class="mnav-label">IA</span></button>
-  <button class="mnav-item" id="mob-settings" onclick="nav('settings',this)"><span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span></button>
+  <button class="mnav-item" id="mob-pricing" onclick="nav('pricing',this)"><span class="mnav-icon">💎</span><span class="mnav-label">Pro</span></button>
+  <button class="mnav-item" id="mob-more" onclick="toggleMobileMore()"><span class="mnav-icon">···</span><span class="mnav-label">More</span></button>
+</div>
+<div class="mobile-more-menu" id="mobile-more-menu">
+  <div class="mmm-overlay" onclick="toggleMobileMore()"></div>
+  <div class="mmm-sheet">
+    <div class="mmm-handle"></div>
+    <div class="mmm-grid">
+      <button class="mmm-item" onclick="nav('kanban');toggleMobileMore()"><span class="mmm-icon">📋</span><span>Kanban</span></button>
+      <button class="mmm-item" onclick="nav('ai');toggleMobileMore()"><span class="mmm-icon">🤖</span><span>IA</span></button>
+      <button class="mmm-item" onclick="nav('history');toggleMobileMore()"><span class="mmm-icon">📈</span><span>History</span></button>
+      <button class="mmm-item" onclick="nav('drops');toggleMobileMore()"><span class="mmm-icon">📉</span><span>Drops</span></button>
+      <button class="mmm-item" onclick="nav('roi');toggleMobileMore()"><span class="mmm-icon">💹</span><span>ROI</span></button>
+      <button class="mmm-item" onclick="nav('compare');toggleMobileMore()"><span class="mmm-icon">⚖️</span><span>Compare</span></button>
+      <button class="mmm-item" onclick="nav('map');toggleMobileMore()"><span class="mmm-icon">🗺</span><span>Map</span></button>
+      <button class="mmm-item" onclick="nav('settings');toggleMobileMore()"><span class="mmm-icon">⚙️</span><span>Config</span></button>
+    </div>
+  </div>
 </div>
 <div id="auth-overlay" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(5,5,7,.95);backdrop-filter:blur(20px);align-items:center;justify-content:center">
   <div style="background:#13181F;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:32px;width:360px;max-width:90vw">
@@ -123,9 +137,9 @@
   <button onclick="doSignOut()" style="width:100%;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px;padding:10px;color:#FF5E5E;font-size:12px;font-weight:600;cursor:pointer">👋 Se déconnecter</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="./config.js?v=20260403"></script>
-<script src="./components.js?v=20260403"></script>
-<script src="./app.js?v=20260403"></script>
-<script src="./supabase.js?v=20260403"></script>
+<script src="./config.js?v=20260403b"></script>
+<script src="./components.js?v=20260403b"></script>
+<script src="./app.js?v=20260403b"></script>
+<script src="./supabase.js?v=20260403b"></script>
 </body>
 </html>

@@ -3217,6 +3217,13 @@ async function runDashAI() {
 
 window.runDashAI           = runDashAI;
 
+function toggleMobileMore() {
+  const el = document.getElementById('mobile-more-menu');
+  if (!el) return;
+  el.classList.toggle('open');
+}
+window.toggleMobileMore = toggleMobileMore;
+
 function setDashQ(q) {
   const el = document.getElementById('ai-q-dash');
   if (el) el.value = q;
