@@ -17,7 +17,8 @@ const express    = require('express');
 const cors       = require('cors');
 const axios      = require('axios');
 const rateLimit  = require('express-rate-limit');
-const Stripe     = require('stripe');
+let Stripe;
+try { Stripe = require('stripe'); } catch(e) { console.warn('⚠ Module stripe non installé — paiements désactivés'); }
 require('dotenv').config();
 
 const app  = express();
@@ -36,15 +37,18 @@ const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET || '';
 const TICKETMASTER_API_KEY   = process.env.TICKETMASTER_API_KEY   || '';
 const ANTHROPIC_API_KEY      = process.env.ANTHROPIC_API_KEY      || '';
 
-const STRIPE_SECRET_KEY     = process.env.STRIPE_SECRET_KEY     || '';
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
-const STRIPE_PRO_PRICE_ID   = process.env.STRIPE_PRO_PRICE_ID  || '';
-const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+const LASTFM_API_KEY = (process.env.LASTFM_API_KEY || '').trim();
+
+const STRIPE_SECRET_KEY     = (process.env.STRIPE_SECRET_KEY     || '').trim();
+const STRIPE_WEBHOOK_SECRET = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+const STRIPE_PRO_PRICE_ID   = (process.env.STRIPE_PRO_PRICE_ID  || '').trim();
+const stripe = (Stripe && STRIPE_SECRET_KEY) ? new Stripe(STRIPE_SECRET_KEY) : null;
 
 if (!SEATGEEK_CLIENT_ID)   console.warn('⚠ SEATGEEK_CLIENT_ID manquant — /api/scan limité');
 if (!TICKETMASTER_API_KEY) console.warn('⚠ TICKETMASTER_API_KEY manquant — /api/scan limité');
 if (!ANTHROPIC_API_KEY)    console.warn('⚠ ANTHROPIC_API_KEY manquant — /api/ai désactivé');
 if (!STRIPE_SECRET_KEY)    console.warn('⚠ STRIPE_SECRET_KEY manquant — paiements désactivés');
+if (!LASTFM_API_KEY)       console.warn('⚠ LASTFM_API_KEY manquant — enrichissement Last.fm désactivé');
 
 /* ── Middlewares ── */
 app.use(cors({
@@ -175,6 +179,7 @@ app.get('/api/health', (req, res) => {
     seatgeek:    SEATGEEK_CLIENT_ID   ? 'configured' : 'missing',
     ticketmaster: TICKETMASTER_API_KEY ? 'configured' : 'missing',
     anthropic:   ANTHROPIC_API_KEY    ? 'configured' : 'missing',
+    lastfm:      LASTFM_API_KEY      ? 'configured' : 'missing',
     stripe:      STRIPE_SECRET_KEY   ? 'configured' : 'missing',
     sheet:       SHEET_URL            ? 'configured' : 'missing',
     chat_id:     TELEGRAM_CHAT_ID     ? 'configured' : 'missing',
@@ -370,6 +375,123 @@ function dedupeEvents(events) {
   });
 }
 
+/* ══════════════════════════════════════════════
+   LAST.FM — Artist popularity enrichment
+══════════════════════════════════════════════ */
+
+/**
+ * Extract artist name from event name
+ * "Ariana Grande Eternal Sunshine Tour" → "Ariana Grande"
+ * "Champions League Final" → null (sport, skip)
+ */
+function extractArtist(name) {
+  if (!name) return null;
+  let artist = name
+    .replace(/\s*(tour|tournée|world tour|european tour|concert|live|show|festival|eternal sunshine|short n sweet|renaissance|the eras|cowboy carter|grand national|mana)\b.*$/i, '')
+    .replace(/\s*(at|@|vs\.?)\s.*$/i, '')
+    .replace(/\s*[-–—|]\s.*$/, '')
+    .replace(/\s*\d{4}.*$/, '')
+    .replace(/\s*(finale?|demi-finale|semi-final|quarter-final|group stage)\b.*$/i, '')
+    .trim();
+  return artist.length >= 2 ? artist : null;
+}
+
+/**
+ * Convert Last.fm listeners count to a 0-100 popularity score
+ * 50M+ = 95, 10M+ = 85, 1M+ = 70, 500k+ = 55, 100k+ = 40, <100k = 20
+ */
+function listenersToScore(listeners) {
+  if (listeners >= 50000000) return 95;
+  if (listeners >= 10000000) return 85;
+  if (listeners >= 5000000)  return 78;
+  if (listeners >= 1000000)  return 70;
+  if (listeners >= 500000)   return 55;
+  if (listeners >= 100000)   return 40;
+  if (listeners >= 10000)    return 25;
+  return 10;
+}
+
+async function enrichWithLastfm(events) {
+  if (!LASTFM_API_KEY) return events;
+
+  const sportCats = ['sport', 'sports', 'mma', 'f1'];
+  const cache = new Map();
+
+  for (const ev of events) {
+    if (sportCats.includes((ev.cat || '').toLowerCase())) continue;
+
+    const artist = extractArtist(ev.name);
+    if (!artist) continue;
+
+    const cacheKey = artist.toLowerCase();
+    if (cache.has(cacheKey)) {
+      const cached = cache.get(cacheKey);
+      ev.spotify_popularity = cached.popularity;
+      ev.spotify_followers = cached.listeners;
+      if (cached.popularity > 70) ev.marge = Math.round(ev.marge * 1.15);
+      continue;
+    }
+
+    try {
+      const res = await axios.get('https://ws.audioscrobbler.com/2.0/', {
+        params: {
+          method: 'artist.getinfo',
+          artist: artist,
+          api_key: LASTFM_API_KEY,
+          format: 'json',
+        },
+        timeout: 4000,
+      });
+
+      const a = res.data?.artist;
+      if (a && a.stats) {
+        const listeners = parseInt(a.stats.listeners) || 0;
+        const playcount = parseInt(a.stats.playcount) || 0;
+        const popularity = listenersToScore(listeners);
+
+        ev.spotify_popularity = popularity;
+        ev.spotify_followers = listeners;
+        cache.set(cacheKey, { popularity, listeners });
+
+        if (popularity > 70) ev.marge = Math.round(ev.marge * 1.15);
+        console.log(`[Last.fm] ${artist} → ${a.name} (${popularity}/100, ${listeners.toLocaleString()} listeners)`);
+      }
+    } catch (err) {
+      if (err.response?.status === 429) {
+        console.warn('[Last.fm] Rate limited, stopping enrichment');
+        break;
+      }
+    }
+  }
+
+  return events;
+}
+
+/* ── GET /api/lastfm/test ── Debug Last.fm search ── */
+app.get('/api/lastfm/test', async (req, res) => {
+  const q = req.query.q || 'Ariana Grande';
+  if (!LASTFM_API_KEY) return res.json({ error: 'LASTFM_API_KEY manquant' });
+  try {
+    const r = await axios.get('https://ws.audioscrobbler.com/2.0/', {
+      params: { method: 'artist.getinfo', artist: q, api_key: LASTFM_API_KEY, format: 'json' },
+      timeout: 5000,
+    });
+    const a = r.data?.artist;
+    if (!a) return res.json({ query: q, error: 'Artist not found' });
+    const listeners = parseInt(a.stats?.listeners) || 0;
+    res.json({
+      query: q,
+      name: a.name,
+      listeners,
+      playcount: parseInt(a.stats?.playcount) || 0,
+      popularity_score: listenersToScore(listeners),
+      tags: (a.tags?.tag || []).map(t => t.name),
+    });
+  } catch (err) {
+    res.json({ error: err.message, status: err.response?.status });
+  }
+});
+
 /* ── GET /api/scan ── Main scanner endpoint ── */
 app.get('/api/scan', async (req, res) => {
   const {
@@ -399,10 +521,15 @@ app.get('/api/scan', async (req, res) => {
     const manual = sheetEvents.status  === 'fulfilled' ? sheetEvents.value  : [];
 
     // Merge + dedupe + filter
-    const all = dedupeEvents([...sg, ...tm, ...manual])
+    let all = dedupeEvents([...sg, ...tm, ...manual])
       .filter(ev => ev.marge >= minMarge)
       .sort((a, b) => b.marge - a.marge)
       .slice(0, maxLimit);
+
+    // Enrich with Last.fm artist popularity
+    all = await enrichWithLastfm(all);
+    // Re-sort after Spotify boost
+    all.sort((a, b) => b.marge - a.marge);
 
     const elapsed = Date.now() - startTime;
     console.log(`[Scan] Terminé — ${sg.length} SG + ${tm.length} TM + ${manual.length} sheet → ${all.length} résultats (${elapsed}ms)`);
@@ -961,8 +1088,11 @@ app.get('/api/plans', (req, res) => {
 
 /* ── POST /api/create-checkout ── */
 app.post('/api/create-checkout', async (req, res) => {
-  if (!stripe || !STRIPE_PRO_PRICE_ID) {
-    return res.status(503).json({ error: 'Stripe non configuré' });
+  if (!stripe) {
+    return res.status(503).json({ error: 'Stripe non configuré — STRIPE_SECRET_KEY manquant' });
+  }
+  if (!STRIPE_PRO_PRICE_ID || !STRIPE_PRO_PRICE_ID.startsWith('price_')) {
+    return res.status(503).json({ error: 'STRIPE_PRO_PRICE_ID manquant ou invalide. Crée un prix dans Stripe Dashboard et ajoute l\'ID (price_xxx) dans les env vars.' });
   }
 
   const { email, userId } = req.body;
@@ -981,7 +1111,10 @@ app.post('/api/create-checkout', async (req, res) => {
     res.json({ url: session.url });
   } catch (err) {
     console.error('[Stripe] Erreur checkout:', err.message);
-    res.status(500).json({ error: err.message });
+    const msg = err.message.includes('No such price')
+      ? `Price ID invalide : "${STRIPE_PRO_PRICE_ID}". Vérifie dans Stripe Dashboard > Products > Price ID.`
+      : err.message;
+    res.status(500).json({ error: msg });
   }
 });
 
