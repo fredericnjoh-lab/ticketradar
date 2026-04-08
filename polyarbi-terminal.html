@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POLY // ARBI</title>
+  <link rel="stylesheet" href="./polyarbi-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ═══ TOP BAR ═══ -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-logo">POLY<span>//</span>ARBI</div>
+      <div class="topbar-version">v1.0</div>
+    </div>
+
+    <div class="topbar-stats">
+      <div class="topbar-stat">
+        <span class="topbar-stat-label">BTC/USD</span>
+        <span class="topbar-stat-value" id="stat-btc">$104,280</span>
+      </div>
+      <div class="topbar-stat">
+        <span class="topbar-stat-label">Portfolio</span>
+        <span class="topbar-stat-value profit" id="stat-portfolio">+$10,554</span>
+      </div>
+      <div class="topbar-stat">
+        <span class="topbar-stat-label">Win Rate</span>
+        <span class="topbar-stat-value" id="stat-winrate">64.4%</span>
+      </div>
+      <div class="topbar-stat">
+        <span class="topbar-stat-label">Open Pos.</span>
+        <span class="topbar-stat-value" id="stat-positions">4</span>
+      </div>
+      <div class="topbar-stat">
+        <span class="topbar-stat-label">Tracked</span>
+        <span class="topbar-stat-value" id="stat-tracked">7</span>
+      </div>
+      <div class="topbar-stat">
+        <span class="topbar-stat-label">Markets</span>
+        <span class="topbar-stat-value" id="stat-markets">47</span>
+      </div>
+    </div>
+
+    <div class="topbar-controls">
+      <div class="mode-toggle">
+        <button class="mode-btn" id="mode-demo" onclick="setMode('demo')">DEMO</button>
+        <button class="mode-btn active" id="mode-live" onclick="setMode('live')">LIVE</button>
+      </div>
+      <div class="live-dot"></div>
+      <span class="live-label" id="live-label">LIVE</span>
+    </div>
+  </header>
+
+  <!-- ═══ GRID ═══ -->
+  <main class="grid">
+
+    <!-- Panel 1: Mispricing Scanner -->
+    <section class="panel" id="panel-scanner">
+      <div class="panel-head">
+        <span class="panel-title">Mispricing Scanner</span>
+        <div class="panel-badges">
+          <span class="badge badge-cyan" id="scanner-count">4 EDGES</span>
+          <span class="badge badge-green" id="scanner-status">SCANNING</span>
+        </div>
+      </div>
+      <div class="panel-body" id="scanner-body">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Panel 2: Wallet Tracker -->
+    <section class="panel" id="panel-wallets">
+      <div class="panel-head">
+        <span class="panel-title">Wallet Tracker</span>
+        <div class="panel-badges">
+          <span class="badge badge-purple" id="wallet-count">7 TRACKED</span>
+        </div>
+      </div>
+      <div class="panel-body" id="wallets-body">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Panel 3: Live Markets -->
+    <section class="panel" id="panel-markets">
+      <div class="panel-head">
+        <span class="panel-title">Live Markets</span>
+        <div class="panel-badges">
+          <span class="badge badge-green" id="markets-count">WATCHING 47</span>
+        </div>
+      </div>
+      <div class="panel-body" id="markets-body" style="padding:0">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Panel 4: Copytrade Engine -->
+    <section class="panel" id="panel-copytrade">
+      <div class="panel-head">
+        <span class="panel-title">Copytrade Engine</span>
+        <div class="panel-badges">
+          <span class="badge badge-green" id="copytrade-mode">LIVE MODE</span>
+        </div>
+      </div>
+      <div class="panel-body" id="copytrade-body" style="padding:0">
+        <!-- Rendered by JS -->
+      </div>
+      <div class="copytrade-footer">
+        <div class="copytrade-stats">
+          <div class="copytrade-stat">
+            <span class="copytrade-stat-label">PNL</span>
+            <span class="copytrade-stat-value profit" id="ct-pnl">+$711.53</span>
+          </div>
+          <div class="copytrade-stat">
+            <span class="copytrade-stat-label">Trades</span>
+            <span class="copytrade-stat-value" id="ct-trades">51</span>
+          </div>
+          <div class="copytrade-stat">
+            <span class="copytrade-stat-label">ROI</span>
+            <span class="copytrade-stat-value profit" id="ct-roi">5.9%</span>
+          </div>
+        </div>
+        <a href="#" class="btn btn-ghost" id="ct-tg-link">t.me/poly_copytrade_bot</a>
+      </div>
+    </section>
+
+    <!-- Panel 5: PNL Curve -->
+    <section class="panel" id="panel-pnl">
+      <div class="panel-head">
+        <span class="panel-title">PNL Curve</span>
+        <div class="panel-badges">
+          <span class="topbar-stat-value profit" id="pnl-total" style="font-size:12px">+$10,554</span>
+        </div>
+      </div>
+      <div class="panel-body" style="padding:4px">
+        <div class="chart-container">
+          <canvas id="pnl-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 6: Arber Leaderboard -->
+    <section class="panel" id="panel-leaderboard">
+      <div class="panel-head">
+        <span class="panel-title">Arber Leaderboard</span>
+        <div class="panel-badges">
+          <span class="badge badge-orange" id="lb-timeframe">30D</span>
+        </div>
+      </div>
+      <div class="panel-body" id="leaderboard-body" style="padding:0">
+        <!-- Rendered by JS -->
+      </div>
+      <div class="activity-log" id="activity-log">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══ STATUS BAR ═══ -->
+  <footer class="status-bar">
+    <div class="status-bar-left">
+      <span><span class="connected" id="sb-poly">&#9679;</span> Polymarket CLOB</span>
+      <span><span class="connected" id="sb-chain">&#9679;</span> Polygon RPC</span>
+      <span><span class="connected" id="sb-tg">&#9679;</span> Telegram Bot</span>
+    </div>
+    <div class="status-bar-right">
+      <span id="sb-last-scan">Last scan: <span id="sb-scan-time">12:11:37</span></span>
+      <span id="sb-latency">Latency: <span id="sb-latency-val">42ms</span></span>
+    </div>
+  </footer>
+
+</div>
+
+<script src="./polyarbi-app.js"></script>
+</body>
+</html>
