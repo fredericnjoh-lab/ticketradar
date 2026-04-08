@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.png
+!icon-192.png
+!icon-512.png
+package-lock.json
