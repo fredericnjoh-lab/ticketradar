@@ -166,19 +166,21 @@ function renderWallets() {
 
   el.innerHTML = STATE.wallets.map(w => {
     const tagClass = w.type === 'whale' ? 'whale' : w.type === 'bot' ? 'arb' : w.type === 'smart' ? 'hot' : '';
-    const isWatched = (STATE.watchedAddrs || []).includes(w.address?.toLowerCase());
+    const fullAddr = w.address || '';
+    const isWatched = (STATE.watchedAddrs || []).includes(fullAddr.toLowerCase());
     return `
     <div class="wallet-item">
       <div class="wallet-left">
-        <span class="wallet-addr">${w.shortAddr}</span>
+        <span class="wallet-addr" title="${fullAddr}" style="cursor:pointer" onclick="copyAddr('${fullAddr}')">${w.shortAddr}</span>
         ${tagClass ? `<span class="wallet-tag ${tagClass}">${w.label}</span>` : `<span style="font-size:8px;color:var(--t3)">${w.label}</span>`}
       </div>
-      <div style="display:flex;align-items:center;gap:6px">
+      <div style="display:flex;align-items:center;gap:4px">
         <div style="text-align:right">
           <span style="font-size:11px;color:var(--t1);font-weight:600">${w.trades} tx</span>
           <span style="font-size:9px;color:var(--t3);display:block">${formatVol(w.volume)} &middot; ${w.wr}% WR</span>
         </div>
-        ${w.address ? `<button class="btn ${isWatched ? 'btn-ghost' : 'btn-copy'}" style="padding:3px 6px;font-size:8px" onclick="watchWallet('${w.address}','${w.shortAddr}')">${isWatched ? 'WATCHING' : 'WATCH'}</button>` : ''}
+        <button class="btn btn-ghost" style="padding:2px 5px;font-size:8px" onclick="copyAddr('${fullAddr}')" title="Copy full address">CP</button>
+        ${fullAddr ? `<button class="btn ${isWatched ? 'btn-ghost' : 'btn-copy'}" style="padding:2px 5px;font-size:8px" onclick="watchWallet('${fullAddr}','${w.shortAddr}')">${isWatched ? 'OK' : 'WATCH'}</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -333,6 +335,22 @@ function renderLeaderboard() {
 /* ══════════════════════════════════════════════
    ACTIONS
 ══════════════════════════════════════════════ */
+function copyAddr(addr) {
+  if (!addr) return;
+  navigator.clipboard.writeText(addr).then(() => {
+    addActivity(`Copied: ${addr.slice(0, 10)}...${addr.slice(-4)}`);
+  }).catch(() => {
+    /* Fallback for non-HTTPS */
+    const ta = document.createElement('textarea');
+    ta.value = addr;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    addActivity(`Copied: ${addr.slice(0, 10)}...${addr.slice(-4)}`);
+  });
+}
+
 function openOnPolymarket(slug) {
   if (slug) window.open(`https://polymarket.com/event/${slug}`, '_blank');
 }
