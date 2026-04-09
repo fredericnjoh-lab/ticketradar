@@ -143,7 +143,8 @@ function renderScanner() {
       </div>
       ${s.kalshi ? `<div style="font-size:9px;color:var(--purple);margin-bottom:6px">Kalshi: ${s.kalshi.title.slice(0,50)} @ ${(s.kalshi.price*100).toFixed(0)}%</div>` : ''}
       <div class="scanner-card-actions">
-        <button class="btn btn-yes" onclick="actionAlert('${s.id}','${s.direction}',${s.edge})">ALERT</button>
+        <button class="btn btn-yes" onclick="openOnPolymarket('${s.slug}')">BUY ${s.direction}</button>
+        <button class="btn btn-copy" onclick="actionAlert('${s.id}','${s.direction}',${s.edge},'${s.question.replace(/'/g,"\\'")}',${s.score})">ALERT TG</button>
         <button class="btn btn-ghost" onclick="actionIgnore('${s.id}')">IGNORE</button>
       </div>
     </div>`;
@@ -165,15 +166,19 @@ function renderWallets() {
 
   el.innerHTML = STATE.wallets.map(w => {
     const tagClass = w.type === 'whale' ? 'whale' : w.type === 'bot' ? 'arb' : w.type === 'smart' ? 'hot' : '';
+    const isWatched = (STATE.watchedAddrs || []).includes(w.address?.toLowerCase());
     return `
     <div class="wallet-item">
       <div class="wallet-left">
         <span class="wallet-addr">${w.shortAddr}</span>
         ${tagClass ? `<span class="wallet-tag ${tagClass}">${w.label}</span>` : `<span style="font-size:8px;color:var(--t3)">${w.label}</span>`}
       </div>
-      <div style="text-align:right">
-        <span style="font-size:11px;color:var(--t1);font-weight:600">${w.trades} tx</span>
-        <span style="font-size:9px;color:var(--t3);display:block">${formatVol(w.volume)} &middot; ${w.wr}% WR</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="text-align:right">
+          <span style="font-size:11px;color:var(--t1);font-weight:600">${w.trades} tx</span>
+          <span style="font-size:9px;color:var(--t3);display:block">${formatVol(w.volume)} &middot; ${w.wr}% WR</span>
+        </div>
+        ${w.address ? `<button class="btn ${isWatched ? 'btn-ghost' : 'btn-copy'}" style="padding:3px 6px;font-size:8px" onclick="watchWallet('${w.address}','${w.shortAddr}')">${isWatched ? 'WATCHING' : 'WATCH'}</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -328,15 +333,53 @@ function renderLeaderboard() {
 /* ══════════════════════════════════════════════
    ACTIONS
 ══════════════════════════════════════════════ */
-function actionAlert(id, direction, edge) {
-  apiPost('/api/alert', { type: 'arb', market: id, direction, edge, suggestedSize: 50, score: 0 });
-  addActivity(`ALERT sent for ${id.slice(0, 20)}... ${direction}`);
+function openOnPolymarket(slug) {
+  if (slug) window.open(`https://polymarket.com/event/${slug}`, '_blank');
+}
+
+function actionAlert(id, direction, edge, question, score) {
+  apiPost('/api/alert', { type: 'arb', market: question || id, direction, edge, suggestedSize: 50, score: score || 0 });
+  addActivity(`TG ALERT: ${(question || id).slice(0, 30)}... ${direction}`);
 }
 
 function actionIgnore(id) {
   STATE.scanner = STATE.scanner.filter(s => s.id !== id);
   renderScanner();
-  addActivity(`IGNORED ${id.slice(0, 15)}...`);
+  addActivity(`IGNORED ${id.toString().slice(0, 15)}...`);
+}
+
+async function watchWallet(address, label) {
+  if (!address) return;
+  addActivity(`Adding ${label || address.slice(0, 10)}... to watchlist`);
+  const res = await apiPost('/api/copy/watch', { address, label: label || address.slice(0, 10) });
+  if (res?.ok) {
+    addActivity(`Now watching ${label || address.slice(0, 10)}`);
+    /* Refresh copytrade data */
+    const copyStatus = await api('/api/copy/status');
+    if (copyStatus) {
+      STATE.watchedAddrs = (copyStatus.watching || []).map(w => w.address?.toLowerCase());
+      STATE.trades = (copyStatus.recentTrades || []).slice(0, 20);
+      renderCopytrade();
+      renderWallets(); /* re-render to show WATCHING state */
+      const watchCount = (copyStatus.watching || []).length;
+      $('copytrade-mode').textContent = `${watchCount} WATCHED`;
+      $('copytrade-mode').className = 'badge badge-green';
+    }
+  } else {
+    addActivity(`Failed: ${res?.error || 'unknown error'}`);
+  }
+}
+
+async function unwatchWallet(address) {
+  const res = await fetch(API_BASE + '/api/copy/watch', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address }),
+  }).then(r => r.json()).catch(() => null);
+  if (res?.ok) {
+    addActivity(`Stopped watching ${address.slice(0, 10)}...`);
+    loadLiveData();
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -382,6 +425,7 @@ async function loadLiveData() {
   /* Copytrade: from /api/copy/status */
   if (copyStatus) {
     const watching = copyStatus.watching || [];
+    STATE.watchedAddrs = watching.map(w => w.address?.toLowerCase());
     STATE.trades = (copyStatus.recentTrades || []).slice(0, 20);
     renderCopytrade();
     $('ct-trades').textContent = copyStatus.totalTradesTracked || 0;
