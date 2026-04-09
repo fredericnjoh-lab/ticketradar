@@ -21,17 +21,24 @@
 const express   = require('express');
 const cors      = require('cors');
 const axios     = require('axios');
+const path      = require('path');
 const rateLimit = require('express-rate-limit');
+let ethers;
+try { ethers = require('ethers'); } catch (e) { console.warn('⚠ ethers not installed — copytrade execution disabled'); }
 require('dotenv').config();
 
 const app  = express();
-const PORT = process.env.POLYARBI_PORT || 3001;
+const PORT = process.env.POLYARBI_PORT || process.env.PORT || 3001;
 
 /* ── Environment ── */
 const TELEGRAM_TOKEN    = process.env.TELEGRAM_TOKEN || '';
 const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID || '';
 const POLYGONSCAN_KEY   = process.env.POLYGONSCAN_API_KEY || '';
 const ALLOWED_ORIGIN    = process.env.POLYARBI_ALLOWED_ORIGIN || '*';
+const PRIVATE_KEY       = process.env.POLYARBI_PRIVATE_KEY || '';     // Polygon wallet for copytrade
+const POLYMARKET_API_KEY = process.env.POLYMARKET_API_KEY || '';       // CLOB API key
+const POLYMARKET_SECRET  = process.env.POLYMARKET_API_SECRET || '';    // CLOB API secret
+const POLYMARKET_PASS    = process.env.POLYMARKET_API_PASSPHRASE || '';// CLOB API passphrase
 
 /* ── API base URLs ── */
 const POLYMARKET_CLOB = 'https://clob.polymarket.com';
@@ -41,15 +48,28 @@ const POLYGONSCAN_API = 'https://api.polygonscan.com/api';
 const TELEGRAM_API    = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
 /* ── Warnings ── */
-if (!TELEGRAM_TOKEN)  console.warn('⚠ TELEGRAM_TOKEN missing — notifications disabled');
-if (!POLYGONSCAN_KEY) console.warn('⚠ POLYGONSCAN_API_KEY missing — wallet tracking limited');
+if (!TELEGRAM_TOKEN)   console.warn('⚠ TELEGRAM_TOKEN missing — notifications disabled');
+if (!POLYGONSCAN_KEY)  console.warn('⚠ POLYGONSCAN_API_KEY missing — wallet tracking limited');
+if (!PRIVATE_KEY)      console.warn('⚠ POLYARBI_PRIVATE_KEY missing — copytrade execution disabled');
+if (!POLYMARKET_API_KEY) console.warn('⚠ POLYMARKET_API_KEY missing — CLOB trading disabled');
 
 /* ── Middlewares ── */
 app.use(cors({ origin: ALLOWED_ORIGIN }));
 app.use(express.json());
 
+/* Serve frontend static files */
+app.use(express.static(path.join(__dirname), {
+  index: false,
+  extensions: ['html', 'css', 'js'],
+}));
+
+/* Serve polyarbi-terminal.html at /app */
+app.get('/app', (req, res) => {
+  res.sendFile(path.join(__dirname, 'polyarbi-terminal.html'));
+});
+
 const limiter = rateLimit({ windowMs: 60_000, max: 120 });
-app.use(limiter);
+app.use('/api', limiter);
 
 /* ── Polymarket contract addresses (Polygon mainnet) ── */
 const POLYMARKET_CTFE   = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045'; // CTF Exchange
@@ -421,6 +441,197 @@ async function scanAllWallets() {
 
 
 /* ═══════════════════════════════════════════════════
+   COPYTRADE ENGINE — CLOB ORDER EXECUTION
+═══════════════════════════════════════════════════ */
+
+/**
+ * Safety controls — prevent runaway trades
+ */
+const COPYTRADE_LIMITS = {
+  maxPerTrade:   parseFloat(process.env.COPYTRADE_MAX_PER_TRADE || '50'),   // Max USDC per single trade
+  maxDaily:      parseFloat(process.env.COPYTRADE_MAX_DAILY || '500'),      // Max USDC per day
+  maxOpenPos:    parseInt(process.env.COPYTRADE_MAX_POSITIONS || '10'),      // Max open positions
+  minEdge:       parseFloat(process.env.COPYTRADE_MIN_EDGE || '2.0'),       // Min edge % to auto-trade
+  requireApproval: (process.env.COPYTRADE_AUTO || 'false') !== 'true',      // Require manual approval by default
+  cooldownMs:    parseInt(process.env.COPYTRADE_COOLDOWN || '60000'),       // 1 min between trades
+};
+
+const tradeState = {
+  dailySpent: 0,
+  dailyReset: new Date().toDateString(),
+  openPositions: 0,
+  lastTradeTime: 0,
+  pendingApprovals: [],  // trades waiting for user confirmation
+  executedTrades: [],
+};
+
+function resetDailyIfNeeded() {
+  const today = new Date().toDateString();
+  if (tradeState.dailyReset !== today) {
+    tradeState.dailySpent = 0;
+    tradeState.dailyReset = today;
+  }
+}
+
+function checkTradeAllowed(amount) {
+  resetDailyIfNeeded();
+  const reasons = [];
+
+  if (!PRIVATE_KEY || !POLYMARKET_API_KEY) {
+    reasons.push('CLOB credentials not configured');
+  }
+  if (!ethers) {
+    reasons.push('ethers.js not installed');
+  }
+  if (amount > COPYTRADE_LIMITS.maxPerTrade) {
+    reasons.push(`Amount $${amount} exceeds max per trade ($${COPYTRADE_LIMITS.maxPerTrade})`);
+  }
+  if (tradeState.dailySpent + amount > COPYTRADE_LIMITS.maxDaily) {
+    reasons.push(`Would exceed daily limit ($${tradeState.dailySpent}/$${COPYTRADE_LIMITS.maxDaily})`);
+  }
+  if (tradeState.openPositions >= COPYTRADE_LIMITS.maxOpenPos) {
+    reasons.push(`Max open positions reached (${COPYTRADE_LIMITS.maxOpenPos})`);
+  }
+  const cooldownLeft = COPYTRADE_LIMITS.cooldownMs - (Date.now() - tradeState.lastTradeTime);
+  if (cooldownLeft > 0) {
+    reasons.push(`Cooldown: ${Math.ceil(cooldownLeft / 1000)}s remaining`);
+  }
+
+  return { allowed: reasons.length === 0, reasons };
+}
+
+/**
+ * Generate CLOB API headers with HMAC authentication.
+ * Polymarket CLOB uses API-key + secret + passphrase + timestamp + signature.
+ */
+function getClobHeaders(method, path, body) {
+  if (!POLYMARKET_API_KEY || !POLYMARKET_SECRET) return null;
+
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const bodyStr = body ? JSON.stringify(body) : '';
+  const message = timestamp + method.toUpperCase() + path + bodyStr;
+
+  let signature;
+  if (ethers) {
+    const hmac = ethers.utils ? ethers.utils.computeHmac('sha256', ethers.utils.toUtf8Bytes(POLYMARKET_SECRET), ethers.utils.toUtf8Bytes(message))
+      : require('crypto').createHmac('sha256', POLYMARKET_SECRET).update(message).digest('base64');
+    signature = typeof hmac === 'string' ? hmac : Buffer.from(hmac).toString('base64');
+  } else {
+    const crypto = require('crypto');
+    signature = crypto.createHmac('sha256', POLYMARKET_SECRET).update(message).digest('base64');
+  }
+
+  return {
+    'POLY_ADDRESS': PRIVATE_KEY ? new (ethers.Wallet || Object)(PRIVATE_KEY).address : '',
+    'POLY_SIGNATURE': signature,
+    'POLY_TIMESTAMP': timestamp,
+    'POLY_NONCE': Date.now().toString(),
+    'POLY_API_KEY': POLYMARKET_API_KEY,
+    'POLY_PASSPHRASE': POLYMARKET_PASS,
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
+ * Place a market order on Polymarket CLOB.
+ * @param {string} tokenId - The outcome token ID (YES or NO token)
+ * @param {string} side - 'BUY' or 'SELL'
+ * @param {number} amount - USDC amount
+ * @param {number} price - Limit price (0-1)
+ */
+async function placeOrder(tokenId, side, amount, price) {
+  if (!POLYMARKET_API_KEY || !PRIVATE_KEY) {
+    return { ok: false, error: 'CLOB credentials not configured' };
+  }
+
+  const orderPayload = {
+    tokenID: tokenId,
+    price: price.toString(),
+    size: Math.floor(amount / price).toString(), // number of shares
+    side: side.toUpperCase(),
+    feeRateBps: '0',
+    nonce: Date.now().toString(),
+    expiration: '0', // GTC (good till cancelled)
+  };
+
+  const apiPath = '/order';
+  const headers = getClobHeaders('POST', apiPath, orderPayload);
+  if (!headers) return { ok: false, error: 'Failed to generate auth headers' };
+
+  try {
+    const res = await axios.post(`${POLYMARKET_CLOB}${apiPath}`, orderPayload, {
+      headers,
+      timeout: 10_000,
+    });
+
+    const orderId = res.data?.orderID || res.data?.id || 'unknown';
+    console.log(`[CLOB] Order placed: ${side} ${amount} USDC @ ${price} — ID: ${orderId}`);
+
+    return { ok: true, orderId, data: res.data };
+  } catch (e) {
+    const errMsg = e.response?.data?.message || e.message;
+    console.error(`[CLOB] Order failed: ${errMsg}`);
+    return { ok: false, error: errMsg };
+  }
+}
+
+/**
+ * Execute a copytrade: validate safety → place order → record.
+ */
+async function executeCopytrade(trade) {
+  const { tokenId, side, amount, price, market, wallet } = trade;
+
+  /* Safety check */
+  const check = checkTradeAllowed(amount);
+  if (!check.allowed) {
+    console.warn(`[CopyTrade] BLOCKED: ${check.reasons.join(', ')}`);
+    return { ok: false, status: 'blocked', reasons: check.reasons };
+  }
+
+  /* Require approval? */
+  if (COPYTRADE_LIMITS.requireApproval) {
+    trade.id = Date.now();
+    trade.status = 'pending_approval';
+    trade.createdAt = new Date().toISOString();
+    tradeState.pendingApprovals.push(trade);
+    console.log(`[CopyTrade] Queued for approval: ${side} $${amount} on "${market}"`);
+
+    if (TELEGRAM_TOKEN) {
+      await sendTelegram(
+        `🔔 <b>COPYTRADE — Approval Required</b>\n\n` +
+        `Wallet: <code>${wallet}</code>\n` +
+        `Market: ${market}\n` +
+        `Side: <b>${side}</b>\n` +
+        `Amount: $${amount}\n` +
+        `Price: ${price}\n\n` +
+        `Approve via dashboard or reply /approve_${trade.id}`
+      );
+    }
+
+    return { ok: true, status: 'pending_approval', tradeId: trade.id };
+  }
+
+  /* Execute immediately */
+  const result = await placeOrder(tokenId, side, amount, price);
+
+  if (result.ok) {
+    tradeState.dailySpent += amount;
+    tradeState.openPositions += 1;
+    tradeState.lastTradeTime = Date.now();
+    tradeState.executedTrades.unshift({
+      ...trade,
+      orderId: result.orderId,
+      executedAt: new Date().toISOString(),
+      status: 'executed',
+    });
+    if (tradeState.executedTrades.length > 200) tradeState.executedTrades.length = 200;
+  }
+
+  return result;
+}
+
+
+/* ═══════════════════════════════════════════════════
    TELEGRAM NOTIFICATIONS
 ═══════════════════════════════════════════════════ */
 
@@ -586,33 +797,86 @@ app.get('/api/trades', (req, res) => {
 });
 
 
-/* Copy trade — execute */
+/* Copytrade — execute or queue for approval */
 app.post('/api/copytrade', async (req, res) => {
-  const { wallet, market, side, amount } = req.body;
+  const { wallet, market, side, amount, tokenId, price } = req.body;
   if (!wallet || !market || !side) {
     return res.status(400).json({ error: 'Missing wallet, market, or side' });
   }
 
-  const trade = {
+  const tradeAmount = Math.min(parseFloat(amount) || COPYTRADE_LIMITS.maxPerTrade, COPYTRADE_LIMITS.maxPerTrade);
+  const trade = { wallet, market, side, amount: tradeAmount, tokenId, price: price || 0.5 };
+
+  /* Execute via CLOB engine (with safety checks) */
+  const result = await executeCopytrade(trade);
+
+  /* Always log to STATE for the frontend feed */
+  STATE.trades.unshift({
     id: Date.now(),
     wallet,
     market,
     side,
-    amount: amount || 0,
+    amount: tradeAmount,
     time: new Date().toISOString(),
-    status: 'pending',
-  };
-
-  STATE.trades.unshift(trade);
+    status: result.status || (result.ok ? 'executed' : 'failed'),
+    orderId: result.orderId || null,
+    reasons: result.reasons || null,
+  });
   if (STATE.trades.length > 500) STATE.trades.length = 500;
 
-  /* Notify via Telegram */
-  if (TELEGRAM_TOKEN) {
-    await sendTelegram(formatTradeAlert(trade));
+  /* Telegram notification */
+  if (TELEGRAM_TOKEN && result.ok) {
+    await sendTelegram(formatTradeAlert({ wallet, market, side, amount: tradeAmount }));
   }
 
-  console.log(`[CopyTrade] ${side} on "${market}" — wallet ${wallet} — $${amount}`);
-  res.json({ ok: true, trade });
+  res.json(result);
+});
+
+/* Approve a pending copytrade */
+app.post('/api/copytrade/:id/approve', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const idx = tradeState.pendingApprovals.findIndex(t => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Trade not found or already processed' });
+
+  const trade = tradeState.pendingApprovals.splice(idx, 1)[0];
+
+  /* Temporarily disable approval requirement for this execution */
+  const wasRequired = COPYTRADE_LIMITS.requireApproval;
+  COPYTRADE_LIMITS.requireApproval = false;
+  const result = await executeCopytrade(trade);
+  COPYTRADE_LIMITS.requireApproval = wasRequired;
+
+  res.json(result);
+});
+
+/* Reject a pending copytrade */
+app.post('/api/copytrade/:id/reject', (req, res) => {
+  const id = parseInt(req.params.id);
+  const idx = tradeState.pendingApprovals.findIndex(t => t.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Trade not found' });
+  tradeState.pendingApprovals.splice(idx, 1);
+  res.json({ ok: true, status: 'rejected' });
+});
+
+/* Get pending approvals */
+app.get('/api/copytrade/pending', (req, res) => {
+  res.json(tradeState.pendingApprovals);
+});
+
+/* Get copytrade safety status */
+app.get('/api/copytrade/status', (req, res) => {
+  resetDailyIfNeeded();
+  res.json({
+    limits: COPYTRADE_LIMITS,
+    dailySpent: tradeState.dailySpent,
+    openPositions: tradeState.openPositions,
+    pendingApprovals: tradeState.pendingApprovals.length,
+    executedToday: tradeState.executedTrades.filter(t =>
+      new Date(t.executedAt).toDateString() === new Date().toDateString()
+    ).length,
+    clobConfigured: !!(POLYMARKET_API_KEY && PRIVATE_KEY),
+    lastTrade: tradeState.executedTrades[0] || null,
+  });
 });
 
 
@@ -676,13 +940,17 @@ async function backgroundWalletScan() {
    BOOT
 ═══════════════════════════════════════════════════ */
 app.listen(PORT, () => {
-  console.log(`\n  ╔══════════════════════════════════════╗`);
-  console.log(`  ║  POLY // ARBI  Backend  v2.0         ║`);
-  console.log(`  ║  Port: ${PORT}                          ║`);
-  console.log(`  ║  Telegram: ${TELEGRAM_TOKEN ? '✓' : '✗'}                         ║`);
-  console.log(`  ║  Polygonscan: ${POLYGONSCAN_KEY ? '✓' : '✗'}                      ║`);
-  console.log(`  ║  Wallets: ${STATE.wallets.length} tracked                   ║`);
-  console.log(`  ╚══════════════════════════════════════╝\n`);
+  console.log(`\n  ╔══════════════════════════════════════════╗`);
+  console.log(`  ║  POLY // ARBI  Backend  v3.0              ║`);
+  console.log(`  ║  Port: ${String(PORT).padEnd(6)}                           ║`);
+  console.log(`  ║  Telegram:    ${TELEGRAM_TOKEN ? '✓ ready' : '✗ missing'}                    ║`);
+  console.log(`  ║  Polygonscan: ${POLYGONSCAN_KEY ? '✓ ready' : '✗ missing'}                    ║`);
+  console.log(`  ║  CLOB Trade:  ${POLYMARKET_API_KEY ? '✓ ready' : '✗ missing'}                    ║`);
+  console.log(`  ║  Wallet Key:  ${PRIVATE_KEY ? '✓ loaded' : '✗ missing'}                   ║`);
+  console.log(`  ║  Wallets:     ${STATE.wallets.length} tracked                    ║`);
+  console.log(`  ║  Auto-trade:  ${COPYTRADE_LIMITS.requireApproval ? 'OFF (approval required)' : 'ON ⚠'}   ║`);
+  console.log(`  ║  Dashboard:   http://localhost:${PORT}/app     ║`);
+  console.log(`  ╚══════════════════════════════════════════╝\n`);
 
   /* Market scan: after 5s, then every 5 min */
   setTimeout(backgroundScan, 5000);
