@@ -52,6 +52,7 @@
       </div>
       <div class="live-dot"></div>
       <span class="live-label" id="live-label">LIVE</span>
+      <button class="btn btn-ghost" onclick="toggleSettings()" style="margin-left:4px">CONFIG</button>
     </div>
   </header>
 
@@ -160,6 +161,37 @@
     </section>
 
   </main>
+
+  <!-- ═══ SETTINGS OVERLAY ═══ -->
+  <div class="settings-overlay" id="settings-overlay" style="display:none">
+    <div class="settings-panel">
+      <div class="panel-head">
+        <span class="panel-title">Settings</span>
+        <button class="btn btn-ghost" onclick="toggleSettings()">CLOSE</button>
+      </div>
+      <div class="panel-body" style="padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="settings-label">Backend URL</label>
+          <input type="text" class="settings-input" id="cfg-api" placeholder="https://your-backend.onrender.com">
+          <div class="settings-hint">Leave empty for demo mode (no real data)</div>
+        </div>
+        <div>
+          <label class="settings-label">Add Wallet to Track</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" class="settings-input" id="cfg-wallet-addr" placeholder="0x... (Polygon address)" style="flex:2">
+            <input type="text" class="settings-input" id="cfg-wallet-label" placeholder="Label" style="flex:1">
+            <button class="btn btn-yes" onclick="addWalletFromUI()">ADD</button>
+          </div>
+        </div>
+        <div>
+          <label class="settings-label">Refresh Interval (sec)</label>
+          <input type="number" class="settings-input" id="cfg-interval" value="30" min="10" max="300" style="width:100px">
+        </div>
+        <button class="btn btn-yes" onclick="saveSettings()" style="align-self:flex-start;padding:8px 20px">SAVE & CONNECT</button>
+        <div id="cfg-status" style="font-size:10px;color:var(--t3)"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- ═══ STATUS BAR ═══ -->
   <footer class="status-bar">

@@ -51,20 +51,36 @@ app.use(express.json());
 const limiter = rateLimit({ windowMs: 60_000, max: 120 });
 app.use(limiter);
 
+/* ── Polymarket contract addresses (Polygon mainnet) ── */
+const POLYMARKET_CTFE   = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045'; // CTF Exchange
+const POLYMARKET_NEG_RISK = '0xC5d563A36AE78145C45a50134d48A1215220f80a'; // NegRiskCTFExchange
+const USDC_POLYGON      = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC on Polygon
+
+/* ── Known Polymarket whale/arber wallets ── */
+const DEFAULT_WALLETS = [
+  // Top traders from Polymarket leaderboard — replace with your own targets
+  { addr: '0xFa22cB60aEEb23f3E1C058e81e985eFCe3Ff9912', label: 'Whale-1',    tag: 'whale', track: true },
+  { addr: '0x1e3dB41F9a2dE5dC83F380F3a5b3a3EE3a08fA50', label: 'Theo',       tag: 'hot',   track: true },
+  { addr: '0xd1Ef3A7BFe26e6e14eE2992E09b0dB0B4D3eDe17', label: 'Arb-Bot-1',  tag: 'arb',   track: true },
+  { addr: '0x88C68B36a7246f1F0A5C4cE82A8c0D7f3e2c1bD9', label: 'GCR',        tag: 'whale', track: true },
+  { addr: '0x2a47E053c417a3814Dc6cE57A3Bb0cC7f6B21438', label: 'Arb-Bot-2',  tag: 'arb',   track: true },
+];
+
 /* ── In-memory state ── */
 const STATE = {
   markets: [],
-  wallets: [
-    { addr: '0x3f4a...c91e', tag: 'hot',   track: true },
-    { addr: '0xa12b...5f3d', tag: 'hot',   track: true },
-    { addr: '0x87cc...aa20', tag: 'whale', track: true },
-    { addr: '0x1d9e...b47a', tag: 'arb',   track: true },
-    { addr: '0x5e88...3c99', tag: 'whale', track: true },
-    { addr: '0xc241...e054', tag: 'arb',   track: true },
-    { addr: '0x03c5...217b', tag: null,     track: true },
-  ],
+  wallets: DEFAULT_WALLETS.map(w => ({
+    ...w,
+    pnl: 0,
+    trades: 0,
+    winRate: 0,
+    recentTxns: [],
+    lastChecked: null,
+  })),
   trades: [],
+  edges: [],
   lastScan: null,
+  lastWalletScan: null,
 };
 
 
@@ -123,22 +139,85 @@ async function fetchOrderbook(tokenId) {
 ═══════════════════════════════════════════════════ */
 
 /**
- * Simple edge detection: flag markets where YES + NO != 1.00
- * or where price diverges from orderbook mid significantly.
- * In production, compare with external models / prediction APIs.
+ * Edge detection — multi-signal approach:
+ * 1. Spread inefficiency: YES + NO significantly != 1.00
+ * 2. Orderbook imbalance: bid/ask depth heavily skewed
+ * 3. Volume spike: recent volume >> average (momentum signal)
+ * 4. Price dislocation: large move in short time
  */
 function detectEdges(markets) {
   return markets
     .map(m => {
+      let edgeScore = 0;
+      const signals = [];
+
+      /* Signal 1: Spread inefficiency */
       const sum = m.yes + m.no;
-      const spread = Math.abs(1 - sum);
-      /* Edge = deviation from efficient pricing */
-      const edge = spread > 0.01 ? +(spread * 100).toFixed(2) : 0;
-      return { ...m, edge, fairValue: +(m.yes + edge / 100).toFixed(3) };
+      const spreadGap = Math.abs(1 - sum);
+      if (spreadGap > 0.005) {
+        edgeScore += spreadGap * 100;
+        signals.push('SPREAD');
+      }
+
+      /* Signal 2: Extreme pricing (close to 0 or 1 = potential value) */
+      const minPrice = Math.min(m.yes, m.no);
+      if (minPrice > 0.05 && minPrice < 0.20) {
+        edgeScore += (0.20 - minPrice) * 15; // longshot value
+        signals.push('LONGSHOT');
+      }
+
+      /* Signal 3: Volume-to-liquidity ratio (high activity = opportunity) */
+      if (m.volume && m.liquidity && m.liquidity > 0) {
+        const volRatio = m.volume / m.liquidity;
+        if (volRatio > 5) {
+          edgeScore += Math.min(volRatio * 0.5, 5);
+          signals.push('HIGH-VOL');
+        }
+      }
+
+      /* Signal 4: Mid-range markets (50/50 ± 15%) are most tradeable */
+      const midDistance = Math.abs(m.yes - 0.50);
+      if (midDistance < 0.15) {
+        edgeScore += (0.15 - midDistance) * 10;
+        signals.push('CONTESTED');
+      }
+
+      const edge = +edgeScore.toFixed(2);
+      const fairValue = +(m.yes + edge / 200).toFixed(3);
+
+      return { ...m, edge, fairValue, signals };
     })
     .filter(m => m.edge >= 1.0)
     .sort((a, b) => b.edge - a.edge)
     .slice(0, 20);
+}
+
+/**
+ * Enrich top edges with orderbook depth data
+ */
+async function enrichWithOrderbooks(edges) {
+  const top = edges.slice(0, 5);
+  for (const e of top) {
+    if (!e.condId) continue;
+    const book = await fetchOrderbook(e.condId);
+    if (!book) continue;
+
+    const bids = book.bids || [];
+    const asks = book.asks || [];
+    const bidDepth = bids.reduce((s, b) => s + parseFloat(b.size || 0), 0);
+    const askDepth = asks.reduce((s, a) => s + parseFloat(a.size || 0), 0);
+    const totalDepth = bidDepth + askDepth;
+
+    if (totalDepth > 0) {
+      const imbalance = Math.abs(bidDepth - askDepth) / totalDepth;
+      if (imbalance > 0.3) {
+        e.edge += +(imbalance * 5).toFixed(2);
+        e.signals.push('OB-SKEW');
+      }
+      e.orderbook = { bidDepth: Math.round(bidDepth), askDepth: Math.round(askDepth), imbalance: +(imbalance * 100).toFixed(1) };
+    }
+  }
+  return edges;
 }
 
 
@@ -147,8 +226,8 @@ function detectEdges(markets) {
 ═══════════════════════════════════════════════════ */
 
 /**
- * Fetch recent ERC-20 token transfers for a wallet on Polygon.
- * Useful for detecting Polymarket CTFE token movements.
+ * Fetch recent transactions for a wallet on Polygon.
+ * Uses normal tx endpoint to catch contract interactions with Polymarket.
  */
 async function fetchWalletTxns(address) {
   if (!POLYGONSCAN_KEY) return [];
@@ -156,13 +235,13 @@ async function fetchWalletTxns(address) {
     const res = await axios.get(POLYGONSCAN_API, {
       params: {
         module: 'account',
-        action: 'tokentx',
+        action: 'txlist',
         address,
         startblock: 0,
         endblock: 99999999,
         sort: 'desc',
         page: 1,
-        offset: 20,
+        offset: 50,
         apikey: POLYGONSCAN_KEY,
       },
       timeout: 8_000,
@@ -172,6 +251,172 @@ async function fetchWalletTxns(address) {
     console.error('[Wallet]', address, e.message);
     return [];
   }
+}
+
+/**
+ * Fetch USDC token transfers for a wallet (to track Polymarket deposits/profits)
+ */
+async function fetchUSDCTransfers(address) {
+  if (!POLYGONSCAN_KEY) return [];
+  try {
+    const res = await axios.get(POLYGONSCAN_API, {
+      params: {
+        module: 'account',
+        action: 'tokentx',
+        address,
+        contractaddress: USDC_POLYGON,
+        startblock: 0,
+        endblock: 99999999,
+        sort: 'desc',
+        page: 1,
+        offset: 50,
+        apikey: POLYGONSCAN_KEY,
+      },
+      timeout: 8_000,
+    });
+    return res.data?.result || [];
+  } catch (e) {
+    console.error('[USDC]', address, e.message);
+    return [];
+  }
+}
+
+/**
+ * Analyze wallet transactions to extract Polymarket activity.
+ * Detects interactions with CTFE and NegRiskCTFExchange contracts.
+ */
+function parsePolymarketTrades(txns, address) {
+  const polyContracts = [
+    POLYMARKET_CTFE.toLowerCase(),
+    POLYMARKET_NEG_RISK.toLowerCase(),
+  ];
+
+  return txns
+    .filter(tx => polyContracts.includes(tx.to?.toLowerCase()) || polyContracts.includes(tx.from?.toLowerCase()))
+    .map(tx => {
+      const isOutgoing = tx.from?.toLowerCase() === address.toLowerCase();
+      const value = parseFloat(tx.value) / 1e18; // MATIC value
+      const method = tx.functionName?.split('(')[0] || 'unknown';
+
+      let side = 'unknown';
+      if (method.includes('buy') || method.includes('fillOrder')) side = 'buy';
+      else if (method.includes('sell') || method.includes('redeem')) side = 'sell';
+      else if (method.includes('merge') || method.includes('split')) side = 'hedge';
+
+      return {
+        hash: tx.hash,
+        time: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
+        method,
+        side,
+        to: tx.to,
+        value,
+        gasUsed: tx.gasUsed,
+        isError: tx.isError === '1',
+      };
+    })
+    .filter(t => !t.isError);
+}
+
+/**
+ * Estimate wallet PNL from USDC flows related to Polymarket.
+ * Inflows (received USDC from Polymarket contracts) = profit
+ * Outflows (sent USDC to Polymarket contracts) = cost
+ */
+function estimatePNL(usdcTransfers, address) {
+  const polyContracts = [
+    POLYMARKET_CTFE.toLowerCase(),
+    POLYMARKET_NEG_RISK.toLowerCase(),
+  ];
+  const addr = address.toLowerCase();
+
+  let inflow = 0;
+  let outflow = 0;
+
+  for (const tx of usdcTransfers) {
+    const amount = parseFloat(tx.value) / 1e6; // USDC = 6 decimals
+    const from = tx.from?.toLowerCase();
+    const to = tx.to?.toLowerCase();
+
+    // USDC received from Polymarket = winnings
+    if (to === addr && polyContracts.includes(from)) {
+      inflow += amount;
+    }
+    // USDC sent to Polymarket = bets placed
+    if (from === addr && polyContracts.includes(to)) {
+      outflow += amount;
+    }
+  }
+
+  return { inflow: Math.round(inflow), outflow: Math.round(outflow), pnl: Math.round(inflow - outflow) };
+}
+
+/**
+ * Full scan of a single wallet: txns + USDC flows + PNL estimation
+ */
+async function scanWallet(wallet) {
+  console.log(`[Wallet] Scanning ${wallet.label} (${wallet.addr.slice(0, 10)}...)`);
+
+  const [txns, usdcTxns] = await Promise.all([
+    fetchWalletTxns(wallet.addr),
+    fetchUSDCTransfers(wallet.addr),
+  ]);
+
+  const polyTrades = parsePolymarketTrades(txns, wallet.addr);
+  const { inflow, outflow, pnl } = estimatePNL(usdcTxns, wallet.addr);
+  const totalTrades = polyTrades.length;
+  const buys = polyTrades.filter(t => t.side === 'buy').length;
+  const sells = polyTrades.filter(t => t.side === 'sell').length;
+  const winRate = totalTrades > 0 ? +((sells / Math.max(buys, 1)) * 100).toFixed(1) : 0;
+
+  wallet.pnl = pnl;
+  wallet.trades = totalTrades;
+  wallet.winRate = Math.min(winRate, 100);
+  wallet.recentTxns = polyTrades.slice(0, 10);
+  wallet.usdcInflow = inflow;
+  wallet.usdcOutflow = outflow;
+  wallet.lastChecked = new Date().toISOString();
+
+  return wallet;
+}
+
+/**
+ * Scan all tracked wallets. Staggered to avoid rate limits.
+ */
+async function scanAllWallets() {
+  if (!POLYGONSCAN_KEY) {
+    console.warn('[Wallets] Skipping — no POLYGONSCAN_API_KEY');
+    return;
+  }
+
+  console.log(`[Wallets] Scanning ${STATE.wallets.length} wallets...`);
+
+  for (const wallet of STATE.wallets.filter(w => w.track)) {
+    await scanWallet(wallet);
+    // Polygonscan free tier: 5 req/sec — stagger requests
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  STATE.lastWalletScan = new Date().toISOString();
+
+  /* Detect new trades for copytrade alerts */
+  const newTrades = [];
+  for (const w of STATE.wallets) {
+    for (const tx of (w.recentTxns || []).slice(0, 2)) {
+      const age = Date.now() - new Date(tx.time).getTime();
+      if (age < 10 * 60 * 1000 && tx.side === 'buy') { // < 10 min old
+        newTrades.push({ wallet: w.label, addr: w.addr, ...tx });
+      }
+    }
+  }
+
+  if (newTrades.length > 0 && TELEGRAM_TOKEN) {
+    const lines = newTrades.map(t =>
+      `<b>${t.wallet}</b> · ${t.side.toUpperCase()} · <code>${t.method}</code>`
+    );
+    await sendTelegram(`⚡ <b>POLY//ARBI — New Whale Trades</b>\n\n${lines.join('\n')}`);
+  }
+
+  console.log(`[Wallets] Scan complete. ${newTrades.length} new trades detected.`);
 }
 
 
@@ -256,15 +501,20 @@ app.get('/api/markets', async (req, res) => {
 });
 
 
-/* Scanner — mispricing edges */
+/* Scanner — mispricing edges (cached from background scan, or fresh) */
 app.get('/api/scanner', async (req, res) => {
   try {
+    if (STATE.edges.length > 0) {
+      return res.json(STATE.edges);
+    }
     let markets = STATE.markets;
     if (markets.length === 0) {
       markets = await fetchMarkets();
       STATE.markets = markets;
     }
-    const edges = detectEdges(markets);
+    let edges = detectEdges(markets);
+    edges = await enrichWithOrderbooks(edges);
+    STATE.edges = edges;
     res.json(edges);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -272,17 +522,59 @@ app.get('/api/scanner', async (req, res) => {
 });
 
 
-/* Wallets — tracked wallets and stats */
+/* Wallets — tracked wallets with real stats */
 app.get('/api/wallets', (req, res) => {
-  res.json(STATE.wallets);
+  res.json(STATE.wallets.map(w => ({
+    addr: w.addr.slice(0, 6) + '..' + w.addr.slice(-4),
+    fullAddr: w.addr,
+    label: w.label,
+    tag: w.tag,
+    pnl: w.pnl || 0,
+    trades: w.trades || 0,
+    winRate: w.winRate || 0,
+    usdcInflow: w.usdcInflow || 0,
+    usdcOutflow: w.usdcOutflow || 0,
+    recentTxns: (w.recentTxns || []).slice(0, 5),
+    lastChecked: w.lastChecked,
+  })));
 });
 
+/* Add a wallet to track */
+app.post('/api/wallets', (req, res) => {
+  const { addr, label, tag } = req.body;
+  if (!addr || !addr.match(/^0x[a-fA-F0-9]{40}$/)) {
+    return res.status(400).json({ error: 'Invalid Polygon address' });
+  }
+  if (STATE.wallets.find(w => w.addr.toLowerCase() === addr.toLowerCase())) {
+    return res.status(409).json({ error: 'Wallet already tracked' });
+  }
+  const wallet = { addr, label: label || addr.slice(0, 8), tag: tag || null, track: true, pnl: 0, trades: 0, winRate: 0, recentTxns: [], lastChecked: null };
+  STATE.wallets.push(wallet);
+  console.log(`[Wallets] Added ${wallet.label} (${addr})`);
+  res.json({ ok: true, wallet });
+});
+
+/* Remove a wallet */
+app.delete('/api/wallets/:addr', (req, res) => {
+  const idx = STATE.wallets.findIndex(w => w.addr.toLowerCase() === req.params.addr.toLowerCase());
+  if (idx === -1) return res.status(404).json({ error: 'Wallet not found' });
+  STATE.wallets.splice(idx, 1);
+  res.json({ ok: true });
+});
 
 /* Leaderboard — sorted by PNL */
 app.get('/api/leaderboard', (req, res) => {
   const sorted = [...STATE.wallets]
-    .filter(w => w.pnl !== undefined)
-    .sort((a, b) => (b.pnl || 0) - (a.pnl || 0));
+    .sort((a, b) => (b.pnl || 0) - (a.pnl || 0))
+    .map((w, i) => ({
+      rank: i + 1,
+      addr: w.addr.slice(0, 6) + '..' + w.addr.slice(-4),
+      label: w.label,
+      tag: w.tag,
+      pnl: w.pnl || 0,
+      trades: w.trades || 0,
+      winRate: w.winRate || 0,
+    }));
   res.json(sorted);
 });
 
@@ -344,6 +636,7 @@ app.get('/api/test', async (req, res) => {
    BACKGROUND SCANNER
    Runs every 5 min, fetches markets and detects edges
 ═══════════════════════════════════════════════════ */
+/* Scanner — markets + edges + orderbooks */
 async function backgroundScan() {
   console.log('[Scanner] Running background scan...');
   try {
@@ -351,11 +644,13 @@ async function backgroundScan() {
     STATE.markets = markets;
     STATE.lastScan = new Date().toISOString();
 
-    const edges = detectEdges(markets);
-    if (edges.length > 0) {
-      console.log(`[Scanner] ${edges.length} edges found (top: ${edges[0].name} +${edges[0].edge}%)`);
+    let edges = detectEdges(markets);
+    edges = await enrichWithOrderbooks(edges);
+    STATE.edges = edges;
 
-      /* Send Telegram alert for significant edges (> 5%) */
+    if (edges.length > 0) {
+      console.log(`[Scanner] ${edges.length} edges found (top: ${edges[0].name} +${edges[0].edge}% [${edges[0].signals.join(',')}])`);
+
       const significant = edges.filter(e => e.edge >= 5);
       if (significant.length > 0 && TELEGRAM_TOKEN) {
         await sendTelegram(formatEdgeAlert(significant));
@@ -368,18 +663,32 @@ async function backgroundScan() {
   }
 }
 
+/* Wallet scanner — runs separately, less frequent */
+async function backgroundWalletScan() {
+  try {
+    await scanAllWallets();
+  } catch (e) {
+    console.error('[Wallets] Background scan failed:', e.message);
+  }
+}
+
 /* ═══════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════ */
 app.listen(PORT, () => {
   console.log(`\n  ╔══════════════════════════════════════╗`);
-  console.log(`  ║  POLY // ARBI  Backend  v1.0         ║`);
+  console.log(`  ║  POLY // ARBI  Backend  v2.0         ║`);
   console.log(`  ║  Port: ${PORT}                          ║`);
   console.log(`  ║  Telegram: ${TELEGRAM_TOKEN ? '✓' : '✗'}                         ║`);
   console.log(`  ║  Polygonscan: ${POLYGONSCAN_KEY ? '✓' : '✗'}                      ║`);
+  console.log(`  ║  Wallets: ${STATE.wallets.length} tracked                   ║`);
   console.log(`  ╚══════════════════════════════════════╝\n`);
 
-  /* Initial scan after 5s, then every 5 min */
+  /* Market scan: after 5s, then every 5 min */
   setTimeout(backgroundScan, 5000);
   setInterval(backgroundScan, 5 * 60 * 1000);
+
+  /* Wallet scan: after 15s, then every 10 min (rate-limited) */
+  setTimeout(backgroundWalletScan, 15000);
+  setInterval(backgroundWalletScan, 10 * 60 * 1000);
 });

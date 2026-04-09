@@ -144,7 +144,8 @@ const DEMO_PNL_DATA = (() => {
    STATE
 ══════════════════════════════════════════════ */
 const STATE = {
-  mode: 'live', // 'demo' | 'live'
+  mode: localStorage.getItem('polyarbi-mode') || 'demo',
+  connected: false,
   scanner: DEMO_SCANNER,
   wallets: DEMO_WALLETS,
   markets: DEMO_MARKETS,
@@ -153,6 +154,8 @@ const STATE = {
   activity: DEMO_ACTIVITY,
   pnlData: DEMO_PNL_DATA,
   pnlChart: null,
+  refreshInterval: parseInt(localStorage.getItem('polyarbi-interval')) || 30,
+  refreshTimer: null,
 };
 
 
@@ -191,6 +194,7 @@ function renderScanner() {
         </div>
         <div class="scanner-card-edge">+${s.edge.toFixed(2)}%</div>
       </div>
+      ${s.signals && s.signals.length ? `<div style="margin-bottom:6px">${s.signals.map(sig => `<span class="signal-tag">${sig}</span>`).join('')}</div>` : ''}
       <div class="scanner-card-row">
         <div class="scanner-card-metric">
           <span class="scanner-card-metric-label">Poly Price</span>
@@ -204,6 +208,10 @@ function renderScanner() {
           <span class="scanner-card-metric-label">Volume</span>
           <span class="scanner-card-metric-value" style="color:var(--t2)">${s.volume}</span>
         </div>
+        ${s.orderbook ? `<div class="scanner-card-metric">
+          <span class="scanner-card-metric-label">OB Skew</span>
+          <span class="scanner-card-metric-value" style="color:var(--cyan)">${s.orderbook.imbalance}%</span>
+        </div>` : ''}
       </div>
       <div class="scanner-card-actions">
         <button class="btn btn-yes" onclick="actionBuy(${s.id},'yes')">BUY YES</button>
@@ -495,14 +503,17 @@ function simulateTick() {
 
 
 /* ══════════════════════════════════════════════
-   BACKEND API (production)
+   BACKEND API — LIVE DATA
 ══════════════════════════════════════════════ */
 const API_BASE = localStorage.getItem('polyarbi-api') || '';
 
 async function fetchFromAPI(endpoint) {
   if (!API_BASE) return null;
   try {
+    const t0 = performance.now();
     const res = await fetch(API_BASE + endpoint);
+    const latency = Math.round(performance.now() - t0);
+    $('sb-latency-val').textContent = latency + 'ms';
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -511,27 +522,202 @@ async function fetchFromAPI(endpoint) {
   }
 }
 
+async function checkConnection() {
+  if (!API_BASE) {
+    setConnectionStatus(false);
+    return false;
+  }
+  const health = await fetchFromAPI('/api/health');
+  const ok = !!health?.status;
+  setConnectionStatus(ok, health);
+  return ok;
+}
+
+function setConnectionStatus(connected, health) {
+  STATE.connected = connected;
+  $('sb-poly').className = connected ? 'connected' : 'offline';
+  $('sb-chain').className = connected ? 'connected' : 'offline';
+  $('sb-tg').className = (health?.telegram) ? 'connected' : 'degraded';
+
+  if (connected) {
+    $('live-label').textContent = 'LIVE';
+    $('live-label').style.color = 'var(--green)';
+  } else if (API_BASE) {
+    $('live-label').textContent = 'OFFLINE';
+    $('live-label').style.color = 'var(--red)';
+  } else {
+    $('live-label').textContent = 'DEMO';
+    $('live-label').style.color = 'var(--orange)';
+  }
+}
+
 async function loadLiveData() {
   if (!API_BASE) return;
 
-  const [markets, wallets, scanner] = await Promise.all([
+  const [markets, wallets, scanner, leaderboard, trades] = await Promise.all([
     fetchFromAPI('/api/markets'),
     fetchFromAPI('/api/wallets'),
     fetchFromAPI('/api/scanner'),
+    fetchFromAPI('/api/leaderboard'),
+    fetchFromAPI('/api/trades'),
   ]);
 
-  if (markets) { STATE.markets = markets; renderMarkets(); }
-  if (wallets) { STATE.wallets = wallets; renderWallets(); }
-  if (scanner) { STATE.scanner = scanner; renderScanner(); }
+  if (markets && markets.length > 0) {
+    STATE.markets = markets.map(m => ({
+      name: m.name,
+      cat: m.category || 'OTHER',
+      vol: m.volume ? '$' + (m.volume / 1e6).toFixed(1) + 'M' : '$0',
+      yes: m.yes,
+      no: m.no,
+      edge: m.edge || null,
+    }));
+    renderMarkets();
+    $('stat-markets').textContent = markets.length;
+  }
 
+  if (wallets && wallets.length > 0) {
+    STATE.wallets = wallets.map(w => ({
+      addr: w.addr,
+      tag: w.tag,
+      pnl: w.pnl || 0,
+      trades: w.trades || 0,
+      winRate: w.winRate || 0,
+    }));
+    renderWallets();
+    $('stat-tracked').textContent = wallets.length;
+  }
+
+  if (scanner && scanner.length > 0) {
+    STATE.scanner = scanner.map((s, i) => ({
+      id: i + 1,
+      name: s.name,
+      category: s.category || 'OTHER',
+      polyPrice: s.yes,
+      fairValue: s.fairValue || s.yes,
+      edge: s.edge || 0,
+      volume: s.volume ? '$' + (s.volume / 1e6).toFixed(1) + 'M' : '$0',
+      signals: s.signals || [],
+      orderbook: s.orderbook || null,
+    }));
+    renderScanner();
+  }
+
+  if (leaderboard && leaderboard.length > 0) {
+    STATE.leaderboard = leaderboard;
+    renderLeaderboard();
+  }
+
+  if (trades && trades.length > 0) {
+    STATE.trades = trades.map(t => ({
+      wallet: t.wallet,
+      market: t.market,
+      side: t.side,
+      amount: t.amount || 0,
+      time: t.time ? new Date(t.time).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'}) : '',
+    }));
+    renderCopytrade();
+  }
+
+  $('sb-scan-time').textContent = now();
   addActivity('Live data refreshed from backend');
+}
+
+/* ══════════════════════════════════════════════
+   SETTINGS
+══════════════════════════════════════════════ */
+function toggleSettings() {
+  const overlay = $('settings-overlay');
+  const isOpen = overlay.style.display !== 'none';
+  overlay.style.display = isOpen ? 'none' : 'flex';
+  if (!isOpen) {
+    $('cfg-api').value = API_BASE;
+    $('cfg-interval').value = STATE.refreshInterval;
+  }
+}
+
+async function saveSettings() {
+  const apiUrl = $('cfg-api').value.trim().replace(/\/+$/, '');
+  const interval = parseInt($('cfg-interval').value) || 30;
+
+  localStorage.setItem('polyarbi-api', apiUrl);
+  localStorage.setItem('polyarbi-interval', interval);
+  STATE.refreshInterval = interval;
+
+  $('cfg-status').textContent = 'Connecting...';
+  $('cfg-status').style.color = 'var(--orange)';
+
+  if (apiUrl) {
+    // Update API_BASE (it's a const, so we reassign via the variable trick)
+    window.__apiBase = apiUrl;
+    const ok = await checkConnection();
+    if (ok) {
+      $('cfg-status').textContent = 'Connected! Loading live data...';
+      $('cfg-status').style.color = 'var(--green)';
+      await loadLiveData();
+      startRefreshLoop();
+      setTimeout(toggleSettings, 1000);
+    } else {
+      $('cfg-status').textContent = 'Connection failed. Check the URL.';
+      $('cfg-status').style.color = 'var(--red)';
+    }
+  } else {
+    $('cfg-status').textContent = 'Demo mode — no backend connected.';
+    $('cfg-status').style.color = 'var(--orange)';
+    setConnectionStatus(false);
+  }
+
+  // Reload page to apply new API_BASE from localStorage
+  if (apiUrl !== API_BASE) {
+    setTimeout(() => location.reload(), 1500);
+  }
+}
+
+async function addWalletFromUI() {
+  const addr = $('cfg-wallet-addr').value.trim();
+  const label = $('cfg-wallet-label').value.trim();
+  if (!addr.match(/^0x[a-fA-F0-9]{40}$/)) {
+    $('cfg-status').textContent = 'Invalid address format (0x... 40 hex chars)';
+    $('cfg-status').style.color = 'var(--red)';
+    return;
+  }
+
+  if (API_BASE) {
+    const res = await fetch(API_BASE + '/api/wallets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addr, label }),
+    }).then(r => r.json()).catch(() => null);
+
+    if (res?.ok) {
+      $('cfg-status').textContent = 'Wallet added: ' + (label || addr.slice(0, 10));
+      $('cfg-status').style.color = 'var(--green)';
+      $('cfg-wallet-addr').value = '';
+      $('cfg-wallet-label').value = '';
+      loadLiveData();
+    } else {
+      $('cfg-status').textContent = res?.error || 'Failed to add wallet';
+      $('cfg-status').style.color = 'var(--red)';
+    }
+  } else {
+    $('cfg-status').textContent = 'Connect a backend first to add wallets';
+    $('cfg-status').style.color = 'var(--orange)';
+  }
+}
+
+function startRefreshLoop() {
+  if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
+  if (API_BASE) {
+    STATE.refreshTimer = setInterval(loadLiveData, STATE.refreshInterval * 1000);
+    console.log(`[Refresh] Live data every ${STATE.refreshInterval}s`);
+  }
 }
 
 
 /* ══════════════════════════════════════════════
    INIT
 ══════════════════════════════════════════════ */
-function init() {
+async function init() {
+  /* Render demo data first (instant) */
   renderScanner();
   renderWallets();
   renderMarkets();
@@ -539,20 +725,33 @@ function init() {
   renderPNLChart();
   renderLeaderboard();
 
-  /* Simulated live ticks every 3s */
-  setInterval(simulateTick, 3000);
+  /* Set initial mode UI */
+  setMode(STATE.mode);
 
-  /* Try loading live data if backend configured */
-  loadLiveData();
-
-  /* Refresh live data every 60s */
   if (API_BASE) {
-    setInterval(loadLiveData, 60000);
+    /* Try connecting to backend */
+    const ok = await checkConnection();
+    if (ok) {
+      addActivity('Backend connected: ' + API_BASE);
+      await loadLiveData();
+      startRefreshLoop();
+    } else {
+      addActivity('Backend unreachable — using demo data');
+    }
+  } else {
+    setConnectionStatus(false);
+    addActivity('No backend configured — demo mode');
+    /* Simulated ticks only in demo mode */
+    setInterval(simulateTick, 3000);
+  }
+
+  /* Only simulate ticks if not connected to real backend */
+  if (!STATE.connected) {
+    setInterval(simulateTick, 3000);
   }
 
   $('sb-scan-time').textContent = now();
-
-  console.log('[POLY//ARBI] Terminal initialized');
+  console.log('[POLY//ARBI] Terminal v2.0 initialized');
 }
 
 /* Resize chart on window resize */

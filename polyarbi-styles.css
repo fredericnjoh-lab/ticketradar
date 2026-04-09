@@ -782,3 +782,77 @@ html, body {
 .status-bar .connected { color: var(--green); }
 .status-bar .degraded  { color: var(--orange); }
 .status-bar .offline   { color: var(--red); }
+
+/* ── Settings Overlay ── */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.settings-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-glow);
+  border-radius: 8px;
+  width: 480px;
+  max-width: 95vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 0 40px rgba(0, 255, 65, 0.05);
+}
+
+.settings-label {
+  display: block;
+  font-size: 9px;
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.settings-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-root);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--t1);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.settings-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 6px rgba(0, 255, 65, 0.1);
+}
+
+.settings-input::placeholder {
+  color: var(--t4);
+}
+
+.settings-hint {
+  font-size: 9px;
+  color: var(--t3);
+  margin-top: 3px;
+}
+
+/* ── Signal Tags ── */
+.signal-tag {
+  display: inline-block;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-right: 2px;
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+}
