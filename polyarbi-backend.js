@@ -34,7 +34,7 @@ const PORT = process.env.POLYARBI_PORT || process.env.PORT || 3001;
 const TELEGRAM_TOKEN    = process.env.TELEGRAM_TOKEN || '';
 const TELEGRAM_CHAT_ID  = process.env.TELEGRAM_CHAT_ID || '';
 const POLYGONSCAN_KEY   = process.env.POLYGONSCAN_API_KEY || '';
-const ALLOWED_ORIGIN    = process.env.POLYARBI_ALLOWED_ORIGIN || '*';
+const ALLOWED_ORIGIN    = process.env.POLYARBI_ALLOWED_ORIGIN || 'https://fredericnjoh-lab.github.io';
 const PRIVATE_KEY       = process.env.POLYARBI_PRIVATE_KEY || '';     // Polygon wallet for copytrade
 const POLYMARKET_API_KEY = process.env.POLYMARKET_API_KEY || '';       // CLOB API key
 const POLYMARKET_SECRET  = process.env.POLYMARKET_API_SECRET || '';    // CLOB API secret
@@ -54,7 +54,16 @@ if (!PRIVATE_KEY)      console.warn('⚠ POLYARBI_PRIVATE_KEY missing — copytr
 if (!POLYMARKET_API_KEY) console.warn('⚠ POLYMARKET_API_KEY missing — CLOB trading disabled');
 
 /* ── Middlewares ── */
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+app.use(cors({
+  origin: [
+    ALLOWED_ORIGIN,
+    'https://polyarbi.onrender.com',
+    'http://localhost:3001',
+    'http://127.0.0.1:5500',
+  ].filter(Boolean),
+  methods: ['GET', 'POST', 'DELETE'],
+  allowedHeaders: ['Content-Type'],
+}));
 app.use(express.json());
 
 /* Serve frontend static files */

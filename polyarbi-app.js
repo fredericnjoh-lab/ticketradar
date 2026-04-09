@@ -505,7 +505,7 @@ function simulateTick() {
 /* ══════════════════════════════════════════════
    BACKEND API — LIVE DATA
 ══════════════════════════════════════════════ */
-const API_BASE = localStorage.getItem('polyarbi-api') || '';
+const API_BASE = localStorage.getItem('polyarbi-api') || 'https://polyarbi.onrender.com';
 
 async function fetchFromAPI(endpoint) {
   if (!API_BASE) return null;
