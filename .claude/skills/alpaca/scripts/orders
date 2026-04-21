@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# List orders. Flags:
+#   --status open|closed|all   (default: open)
+#   --limit N                  (default: 50)
+#   --after ISO8601            (optional, e.g. 2026-04-21T00:00:00Z)
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+status="open"
+limit=50
+after=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --status) status="$2"; shift 2 ;;
+    --limit) limit="$2"; shift 2 ;;
+    --after) after="$2"; shift 2 ;;
+    *) echo "error: unknown arg $1" >&2; exit 2 ;;
+  esac
+done
+
+query="status=$status&limit=$limit"
+if [[ -n "$after" ]]; then
+  query="$query&after=$after"
+fi
+ac_get "/v2/orders?$query"

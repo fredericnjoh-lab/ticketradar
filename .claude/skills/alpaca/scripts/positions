@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Print open positions as JSON. Optionally pass a symbol to get just one.
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+if [[ $# -eq 1 ]]; then
+  ac_get "/v2/positions/$1"
+else
+  ac_get /v2/positions
+fi

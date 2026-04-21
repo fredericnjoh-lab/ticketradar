@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Print the account snapshot as JSON.
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+ac_get /v2/account

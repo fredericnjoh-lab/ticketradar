@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Print the latest quote for a symbol.
+#   quote AAPL
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: quote SYMBOL" >&2
+  exit 2
+fi
+ac_data_get "/v2/stocks/$1/quotes/latest"

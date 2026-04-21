@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Submit an order to Alpaca with pre-trade gating.
+#
+# Required flags:
+#   --symbol SYM
+#   --side buy|sell
+#   --intent entry|exit|stop
+#   --qty N
+#   --type limit|market|stop
+#   --tif day
+#
+# Conditional flags:
+#   --limit PRICE     required when --type limit
+#   --stop PRICE      required when --intent entry (for any buy)
+#                     required when --type stop
+#
+# Gating (rejects with exit 3 on any failure):
+#   - keys must be set (inherited from _common.sh)
+#   - symbol must be in trading/strategy/universe.md
+#   - qty >= 1
+#   - tif must be "day"
+#   - qty * reference_price <= ALPACA_MAX_ORDER_USD
+#   - entry buys: stop required, stop distance 2%..5% of limit
+#   - stop orders: stop required and != 0
+#
+# Emits the Alpaca API response JSON on success.
+
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+symbol=""
+side=""
+intent=""
+qty=""
+type=""
+limit=""
+stop=""
+tif="day"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --symbol) symbol="$2"; shift 2 ;;
+    --side)   side="$2";   shift 2 ;;
+    --intent) intent="$2"; shift 2 ;;
+    --qty)    qty="$2";    shift 2 ;;
+    --type)   type="$2";   shift 2 ;;
+    --limit)  limit="$2";  shift 2 ;;
+    --stop)   stop="$2";   shift 2 ;;
+    --tif)    tif="$2";    shift 2 ;;
+    *) echo "error: unknown arg $1" >&2; exit 2 ;;
+  esac
+done
+
+# Required fields
+for var in symbol side intent qty type tif; do
+  if [[ -z "${!var}" ]]; then
+    echo "error: --$var is required" >&2
+    exit 2
+  fi
+done
+
+case "$side" in buy|sell) ;; *) echo "error: side must be buy|sell" >&2; exit 2 ;; esac
+case "$intent" in entry|exit|stop) ;; *) echo "error: intent must be entry|exit|stop" >&2; exit 2 ;; esac
+case "$type" in limit|market|stop) ;; *) echo "error: type must be limit|market|stop" >&2; exit 2 ;; esac
+
+if [[ "$tif" != "day" ]]; then
+  echo "error: tif must be day (rules.md §8)" >&2
+  exit 3
+fi
+
+# Universe check
+require_in_universe "$symbol"
+
+# qty must be a positive integer
+if ! [[ "$qty" =~ ^[0-9]+$ ]] || (( qty < 1 )); then
+  echo "error: qty must be a positive integer, got '$qty'" >&2
+  exit 3
+fi
+
+# Type-specific requirements
+if [[ "$type" == "limit" && -z "$limit" ]]; then
+  echo "error: --limit is required when --type limit" >&2
+  exit 2
+fi
+if [[ "$type" == "stop" && -z "$stop" ]]; then
+  echo "error: --stop is required when --type stop" >&2
+  exit 2
+fi
+
+# Entry-buy requires a stop recorded
+if [[ "$intent" == "entry" && "$side" == "buy" && -z "$stop" ]]; then
+  echo "error: entry buys require --stop (rules.md §3)" >&2
+  exit 3
+fi
+
+# Dollar-cap check: use limit if available, else stop, else fetch quote
+reference_price=""
+if [[ -n "$limit" ]]; then
+  reference_price="$limit"
+elif [[ -n "$stop" ]]; then
+  reference_price="$stop"
+else
+  # Market order without a limit — fetch the latest trade to estimate dollar size.
+  if ! latest=$(ac_data_get "/v2/stocks/$symbol/trades/latest"); then
+    echo "error: could not fetch latest trade for $symbol" >&2
+    exit 3
+  fi
+  reference_price=$(printf '%s' "$latest" | awk -F'"p":' 'NF>1 {print $2}' | awk -F',' '{print $1}' | tr -d ' ')
+  if [[ -z "$reference_price" ]]; then
+    echo "error: could not parse latest trade price" >&2
+    exit 3
+  fi
+fi
+
+# Compute dollar size and compare to cap (awk handles floats).
+if ! awk -v q="$qty" -v p="$reference_price" -v cap="$ALPACA_MAX_ORDER_USD" \
+  'BEGIN { exit !(q*p <= cap) }'; then
+  size=$(awk -v q="$qty" -v p="$reference_price" 'BEGIN { printf "%.2f", q*p }')
+  echo "error: order size \$$size exceeds ALPACA_MAX_ORDER_USD=\$$ALPACA_MAX_ORDER_USD" >&2
+  exit 3
+fi
+
+# Stop-distance band check for long entries
+if [[ "$intent" == "entry" && "$side" == "buy" ]]; then
+  dist_ok=$(awk -v l="$limit" -v s="$stop" 'BEGIN {
+    if (l+0 <= 0 || s+0 <= 0) { print "bad"; exit }
+    d = (l - s) / l
+    if (d >= 0.02 && d <= 0.05) print "ok"; else print "out"
+  }')
+  case "$dist_ok" in
+    ok) ;;
+    out)
+      echo "error: stop distance outside 2%..5% band (limit=$limit stop=$stop, rules.md §3)" >&2
+      exit 3
+      ;;
+    *)
+      echo "error: could not compute stop distance" >&2
+      exit 3
+      ;;
+  esac
+fi
+
+# Build the JSON payload
+payload=$(python3 - "$symbol" "$qty" "$side" "$type" "$tif" "$limit" "$stop" <<'PY'
+import json, sys
+symbol, qty, side, type_, tif, limit, stop = sys.argv[1:8]
+body = {
+    "symbol": symbol,
+    "qty": qty,
+    "side": side,
+    "type": type_,
+    "time_in_force": tif,
+}
+if limit:
+    body["limit_price"] = limit
+if stop and type_ in ("stop", "stop_limit"):
+    body["stop_price"] = stop
+print(json.dumps(body))
+PY
+)
+
+echo "submitting: $payload" >&2
+ac_post /v2/orders "$payload"

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Print recent bars for a symbol.
+#   bars AAPL 1Day          (default: last 30 bars)
+#   bars AAPL 5Min 100
+#   bars AAPL 1Hour
+# Valid timeframes: 1Min 5Min 15Min 1Hour 1Day
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "usage: bars SYMBOL TIMEFRAME [LIMIT]" >&2
+  exit 2
+fi
+
+sym="$1"
+tf="$2"
+limit="${3:-30}"
+
+ac_data_get "/v2/stocks/$sym/bars?timeframe=$tf&limit=$limit&adjustment=raw&feed=iex"

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Print the market clock (is it open, next open/close).
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+ac_get /v2/clock

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Cancel an order by id.
+#   cancel <order_id>
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: cancel ORDER_ID" >&2
+  exit 2
+fi
+ac_delete "/v2/orders/$1"
