@@ -46,6 +46,8 @@ function SignalBadge(sig) {
     'VENDRE BIENTÔT': 'gold',     'SELL SOON': 'gold',
     'ATTENDRE': 'blue',           'WAIT': 'blue',
     'SURVEILLER': 'gray',         'WATCH': 'gray',
+    'ACHETER': 'teal',            'ÉVITER': 'red',
+    'EVITER': 'red',              'AVOID': 'red',
   };
   const color = colorMap[sig.signal] || 'gray';
   return Badge(`${sig.icon || ''} ${sig.signal}`, color);
