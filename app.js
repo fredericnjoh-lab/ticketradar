@@ -2562,21 +2562,107 @@ function switchAuthTab(mode) {
   _authMode = mode;
   const signin = document.getElementById('tab-signin');
   const signup = document.getElementById('tab-signup');
+  const tabs   = document.getElementById('auth-tabs');
   const btn    = document.getElementById('auth-submit-btn');
   const sub    = document.getElementById('auth-subtitle');
-  if (mode === 'signin') {
-    signin.style.background = 'var(--bg5)'; signin.style.color = 'var(--gold2)';
-    signup.style.background = 'transparent'; signup.style.color = 'var(--t3)';
-    if (btn) btn.textContent = 'Se connecter';
-    if (sub) sub.textContent = 'Connecte-toi pour retrouver tes données';
+  const pwdWrap = document.getElementById('auth-password-wrap');
+  const forgot = document.getElementById('auth-forgot-link');
+  const backBtn = document.getElementById('auth-back-signin');
+  const skipBtn = document.getElementById('auth-skip-btn');
+  const form = document.getElementById('auth-form');
+  const recovery = document.getElementById('auth-recovery');
+  const successEl = document.getElementById('auth-success');
+
+  if (form) form.style.display = 'flex';
+  if (recovery) recovery.style.display = 'none';
+  if (successEl) { successEl.style.display = 'none'; successEl.textContent = ''; }
+  if (btn) btn.style.display = 'block';
+
+  if (mode === 'reset') {
+    if (tabs) tabs.style.display = 'none';
+    if (pwdWrap) pwdWrap.style.display = 'none';
+    if (forgot) forgot.style.display = 'none';
+    if (backBtn) backBtn.style.display = 'block';
+    if (skipBtn) skipBtn.style.display = 'none';
+    if (btn) btn.textContent = S.lang === 'en' ? 'Send reset link' : 'Envoyer le lien';
+    if (sub) sub.textContent = S.lang === 'en'
+      ? 'Enter your email to receive a reset link'
+      : 'Entre ton email pour recevoir un lien de réinitialisation';
+  } else if (mode === 'signin') {
+    if (tabs) tabs.style.display = 'flex';
+    if (pwdWrap) pwdWrap.style.display = 'block';
+    if (forgot) forgot.style.display = 'block';
+    if (backBtn) backBtn.style.display = 'none';
+    if (skipBtn) skipBtn.style.display = 'block';
+    if (signin) { signin.style.background = 'var(--bg5)'; signin.style.color = 'var(--gold2)'; }
+    if (signup) { signup.style.background = 'transparent'; signup.style.color = 'var(--t3)'; }
+    if (btn) btn.textContent = S.lang === 'en' ? 'Sign in' : 'Se connecter';
+    if (sub) sub.textContent = S.lang === 'en'
+      ? 'Sign in to sync your data'
+      : 'Connecte-toi pour retrouver tes données';
   } else {
-    signup.style.background = 'var(--bg5)'; signup.style.color = 'var(--gold2)';
-    signin.style.background = 'transparent'; signin.style.color = 'var(--t3)';
-    if (btn) btn.textContent = "S'inscrire";
-    if (sub) sub.textContent = 'Crée ton compte TicketRadar';
+    if (tabs) tabs.style.display = 'flex';
+    if (pwdWrap) pwdWrap.style.display = 'block';
+    if (forgot) forgot.style.display = 'none';
+    if (backBtn) backBtn.style.display = 'none';
+    if (skipBtn) skipBtn.style.display = 'block';
+    if (signup) { signup.style.background = 'var(--bg5)'; signup.style.color = 'var(--gold2)'; }
+    if (signin) { signin.style.background = 'transparent'; signin.style.color = 'var(--t3)'; }
+    if (btn) btn.textContent = S.lang === 'en' ? 'Sign up' : "S'inscrire";
+    if (sub) sub.textContent = S.lang === 'en'
+      ? 'Create your TicketRadar account'
+      : 'Crée ton compte TicketRadar';
   }
   const errEl = document.getElementById('auth-error');
   if (errEl) errEl.style.display = 'none';
+}
+
+function showPasswordRecoveryModal() {
+  showAuthModal();
+  const form = document.getElementById('auth-form');
+  const recovery = document.getElementById('auth-recovery');
+  const tabs = document.getElementById('auth-tabs');
+  const sub = document.getElementById('auth-subtitle');
+  const successEl = document.getElementById('auth-success');
+  if (tabs) tabs.style.display = 'none';
+  if (form) form.style.display = 'none';
+  if (recovery) recovery.style.display = 'flex';
+  if (successEl) successEl.style.display = 'none';
+  if (sub) sub.textContent = S.lang === 'en' ? 'Set a new password' : 'Définis un nouveau mot de passe';
+  const err = document.getElementById('auth-recovery-error');
+  if (err) err.style.display = 'none';
+}
+
+async function submitNewPassword() {
+  const p1 = document.getElementById('auth-new-password')?.value || '';
+  const p2 = document.getElementById('auth-new-password2')?.value || '';
+  const errEl = document.getElementById('auth-recovery-error');
+  const btn = document.getElementById('auth-recovery-btn');
+  const fr = S.lang !== 'en';
+
+  if (p1.length < 6) {
+    if (errEl) { errEl.textContent = fr ? '6 caractères minimum' : 'Minimum 6 characters'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (p1 !== p2) {
+    if (errEl) { errEl.textContent = fr ? 'Les mots de passe ne correspondent pas' : 'Passwords do not match'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = fr ? '⟳ Enregistrement...' : '⟳ Saving...'; }
+
+  try {
+    await sbUpdatePassword(p1);
+    hideAuthModal();
+    updateUserBtn();
+    toast(fr ? '✓ Mot de passe mis à jour' : '✓ Password updated', '🔒');
+    window.history.replaceState({}, '', window.location.pathname + window.location.search);
+    switchAuthTab('signin');
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || (fr ? 'Erreur' : 'Error'); errEl.style.display = 'block'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = fr ? 'Enregistrer le mot de passe' : 'Save password'; }
+  }
 }
 
 async function submitAuth() {
@@ -2585,19 +2671,49 @@ async function submitAuth() {
   const errEl    = document.getElementById('auth-error');
   const btn      = document.getElementById('auth-submit-btn');
   const successEl = document.getElementById('auth-success');
+  const fr = S.lang !== 'en';
+
+  if (_authMode === 'reset') {
+    if (!email) {
+      if (errEl) { errEl.textContent = fr ? 'Email requis' : 'Email required'; errEl.style.display = 'block'; }
+      return;
+    }
+    if (errEl) errEl.style.display = 'none';
+    if (btn) { btn.textContent = fr ? '⟳ Envoi...' : '⟳ Sending...'; btn.disabled = true; }
+    try {
+      await sbResetPassword(email);
+      if (successEl) {
+        successEl.textContent = fr
+          ? '✓ Lien envoyé ! Vérifie ta boîte mail (et les spams).'
+          : '✓ Link sent! Check your inbox (and spam).';
+        successEl.style.display = 'block';
+      }
+      if (btn) btn.style.display = 'none';
+    } catch (err) {
+      if (errEl) { errEl.textContent = err.message || (fr ? 'Erreur d\'envoi' : 'Send error'); errEl.style.display = 'block'; }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        if (btn.style.display !== 'none') btn.textContent = fr ? 'Envoyer le lien' : 'Send reset link';
+      }
+    }
+    return;
+  }
 
   if (!email || !password) {
-    if (errEl) { errEl.textContent = 'Email et mot de passe requis'; errEl.style.display = 'block'; }
+    if (errEl) { errEl.textContent = fr ? 'Email et mot de passe requis' : 'Email and password required'; errEl.style.display = 'block'; }
     return;
   }
   if (errEl) errEl.style.display = 'none';
-  if (btn) { btn.textContent = '⟳ Chargement...'; btn.disabled = true; }
+  if (btn) { btn.textContent = fr ? '⟳ Chargement...' : '⟳ Loading...'; btn.disabled = true; }
 
   try {
     if (_authMode === 'signup') {
       await sbSignUp(email, password);
       if (successEl) {
-        successEl.textContent = '✓ Compte créé ! Vérifie ton email pour confirmer.';
+        successEl.textContent = fr
+          ? '✓ Compte créé ! Vérifie ton email pour confirmer.'
+          : '✓ Account created! Check your email to confirm.';
         successEl.style.display = 'block';
       }
       if (btn) btn.style.display = 'none';
@@ -2605,20 +2721,24 @@ async function submitAuth() {
       await sbSignIn(email, password);
       hideAuthModal();
       updateUserBtn();
-      toast(S.lang==='fr'?'✓ Bienvenue !':'✓ Welcome!', '👤');
-      // Reset form
+      toast(fr ? '✓ Bienvenue !' : '✓ Welcome!', '👤');
       const emailEl = document.getElementById('auth-email');
       const pwdEl   = document.getElementById('auth-password');
       if (emailEl) emailEl.value = '';
       if (pwdEl)   pwdEl.value   = '';
     }
   } catch(err) {
-    const msg = err.message?.includes('Invalid login') ? 'Email ou mot de passe incorrect'
-              : err.message?.includes('already registered') ? 'Email déjà utilisé'
-              : err.message || 'Erreur de connexion';
+    const msg = err.message?.includes('Invalid login') ? (fr ? 'Email ou mot de passe incorrect' : 'Invalid email or password')
+              : err.message?.includes('already registered') ? (fr ? 'Email déjà utilisé' : 'Email already registered')
+              : err.message || (fr ? 'Erreur de connexion' : 'Sign-in error');
     if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = _authMode === 'signup' ? "S'inscrire" : 'Se connecter'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = _authMode === 'signup'
+        ? (fr ? "S'inscrire" : 'Sign up')
+        : (fr ? 'Se connecter' : 'Sign in');
+    }
   }
 }
 
@@ -3597,6 +3717,8 @@ window.hideAuthModal  = hideAuthModal;
 window.skipAuth       = skipAuth;
 window.switchAuthTab  = switchAuthTab;
 window.submitAuth     = submitAuth;
+window.showPasswordRecoveryModal = showPasswordRecoveryModal;
+window.submitNewPassword = submitNewPassword;
 window.toggleUserMenu = toggleUserMenu;
 window.closeUserMenu  = closeUserMenu;
 window.togglePwd      = togglePwd;

@@ -4,10 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>TicketRadar</title>
-  <link rel="stylesheet" href="./styles.v6.css?v=20260403c">
+  <link rel="stylesheet" href="./styles.v6.css?v=20260405">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <style>
+    /* Mobile: show cards, hide table */
+    @media(max-width:640px){
+      .tbl-wrap{display:none!important}
+      .mobile-cards-container{display:block!important}
+    }
+    /* Desktop: show table, hide cards */
+    @media(min-width:641px){
+      .mobile-cards-container{display:none!important}
+    }
+    /* Onboarding card */
+    .onboard-step{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:10px;background:var(--v6-bg2);border:1px solid var(--v6-b1);transition:border-color .2s}
+    .onboard-step:hover{border-color:var(--v6-teal)}
+    .onboard-step.done{opacity:.5}
+    .onboard-step.done .onboard-check{background:var(--v6-teal);color:var(--v6-bg0)}
+    .onboard-check{width:28px;height:28px;min-width:28px;border-radius:8px;border:1.5px solid var(--v6-b2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--v6-t4)}
+    .onboard-title{font-size:13px;font-weight:600;color:var(--v6-t1)}
+    .onboard-desc{font-size:11px;color:var(--v6-t3);margin-top:2px}
+  </style>
 </head>
 <body>
 <div class="toast" id="toast"></div>
@@ -25,6 +44,7 @@
     <div class="sb-item npill" id="nav-events" onclick="nav('events',this)"><span class="sbi-dot"></span> Events</div>
     <div class="sb-item npill" id="nav-kanban" onclick="nav('kanban',this)"><span class="sbi-dot"></span> Kanban P&amp;L</div>
     <div class="sb-item npill" id="nav-presale" onclick="nav('presale',this)"><span class="sbi-dot" style="background:var(--v6-gold)"></span> Presale</div>
+    <div class="sb-item npill" id="nav-rapport" onclick="nav('rapport',this)"><span class="sbi-dot" style="background:var(--v6-purple)"></span> Rapport 📄</div>
     <div class="sbv6-section-lbl">INTELLIGENCE</div>
     <div class="sb-item npill" id="nav-ai" onclick="nav('ai',this)"><span class="sbi-dot" style="background:var(--v6-purple)"></span> AI Predictor</div>
     <div class="sb-item npill" id="nav-history" onclick="nav('history',this)"><span class="sbi-dot" style="background:var(--v6-blue)"></span> Price History</div>
@@ -33,11 +53,11 @@
     <div class="sbv6-section-lbl">OBJECTIFS</div>
     <div class="sb-item npill" id="nav-goals" onclick="nav('goals',this)"><span class="sbi-dot" style="background:var(--v6-gold)"></span> AI Goal Tracker</div>
     <div class="sbv6-section-lbl">OUTILS</div>
-    <div class="sb-item npill" id="nav-wl" onclick="nav('wl',this)"><span class="sbi-dot"></span> Watchlist</div>
+    <div class="sb-item npill" id="nav-wl" onclick="nav('watchlist',this)"><span class="sbi-dot"></span> Watchlist</div>
     <div class="sb-item npill" id="nav-compare" onclick="nav('compare',this)"><span class="sbi-dot"></span> Comparer</div>
     <div class="sb-item npill" id="nav-roi" onclick="nav('roi',this)"><span class="sbi-dot"></span> ROI Calc</div>
     <div class="sb-item npill" id="nav-add" onclick="nav('add',this)"><span class="sbi-dot"></span> + Ajouter</div>
-    <div class="sb-item npill" id="nav-pricing" onclick="nav('pricing',this)"><span class="sbi-dot" style="background:var(--v6-purple)"></span> Pricing 💎</div>
+    <div class="sb-item npill" id="nav-profile" onclick="nav('profile',this)"><span class="sbi-dot" style="background:var(--v6-teal)"></span> Profil 👤</div>
     <div class="sb-item npill" id="nav-settings" onclick="nav('settings',this)"><span class="sbi-dot"></span> Config ⚙</div>
     <div class="sbv6-section-lbl">SEUIL ALERTE</div>
     <div class="sbv6-seuil">
@@ -56,7 +76,7 @@
         <div class="sbv6-avatar" id="user-btn">👤</div>
         <div>
           <div style="font-size:12px;color:var(--v6-t1);font-weight:500" id="user-email-sb">Mon compte</div>
-          <div style="font-size:9px;color:var(--v6-teal);font-family:monospace">● local</div>
+          <div style="font-size:9px;font-family:monospace" id="user-status-sb">● local</div>
         </div>
       </div>
     </div>
@@ -77,42 +97,23 @@
           <button class="lang-btn active" id="lang-fr" onclick="setLang('fr')">FR</button>
           <button class="lang-btn" id="lang-en" onclick="setLang('en')">EN</button>
         </div>
+        <button onclick="nav('pricing',this)" style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);color:#A78BFA;padding:5px 14px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--v6-font-mono,monospace);white-space:nowrap">💎 Pro</button>
         <button class="theme-btn" id="theme-btn" onclick="toggleTheme()">☀️</button>
         <div id="notif-btn" class="tbv6-notif">🔔<span id="notif-count" style="display:none;background:var(--v6-red);color:#fff;border-radius:50%;font-size:8px;padding:1px 4px;margin-left:2px">0</span></div>
         <button class="scan-btn" id="scan-btn" onclick="runScan()"><span id="scan-ic">⟳</span> <span id="scan-lbl">Scanner</span></button>
-        <button class="mobile-account-btn" id="mobile-account-btn" onclick="toggleUserMenu()"><span id="mob-avatar">👤</span></button>
       </div>
     </div>
     <div class="content" id="content"></div>
   </div>
 </div>
 <div class="mobile-nav" id="mobile-nav">
-  <button class="mnav-item active" id="mob-dash" onclick="nav('dash',this)"><span class="mnav-icon">📊</span><span class="mnav-label">Home</span></button>
+  <button class="mnav-item active" id="mob-dash" onclick="nav('dash',this)"><span class="mnav-icon">📊</span><span class="mnav-label">Dashboard</span></button>
   <button class="mnav-item" id="mob-events" onclick="nav('events',this)"><span class="mnav-icon">🎫</span><span class="mnav-label">Events</span></button>
+  <button class="mnav-item" id="mob-kanban" onclick="nav('kanban',this)"><span class="mnav-icon">📋</span><span class="mnav-label">Kanban</span></button>
   <button class="mnav-item" id="mob-goals" onclick="nav('goals',this)"><span class="mnav-icon">🎯</span><span class="mnav-label">Goals</span></button>
-  <button class="mnav-item" id="mob-pricing" onclick="nav('pricing',this)"><span class="mnav-icon">💎</span><span class="mnav-label">Pro</span></button>
-  <button class="mnav-item" id="mob-more" onclick="toggleMobileMore()"><span class="mnav-icon">···</span><span class="mnav-label">More</span></button>
-</div>
-<div class="mobile-more-menu" id="mobile-more-menu">
-  <div class="mmm-overlay" onclick="toggleMobileMore()"></div>
-  <div class="mmm-sheet">
-    <div class="mmm-handle"></div>
-    <div class="mmm-grid">
-      <button class="mmm-item" onclick="nav('kanban');toggleMobileMore()"><span class="mmm-icon">📋</span><span>Kanban</span></button>
-      <button class="mmm-item" onclick="nav('ai');toggleMobileMore()"><span class="mmm-icon">🤖</span><span>IA</span></button>
-      <button class="mmm-item" onclick="nav('history');toggleMobileMore()"><span class="mmm-icon">📈</span><span>History</span></button>
-      <button class="mmm-item" onclick="nav('drops');toggleMobileMore()"><span class="mmm-icon">📉</span><span>Drops</span></button>
-      <button class="mmm-item" onclick="nav('roi');toggleMobileMore()"><span class="mmm-icon">💹</span><span>ROI</span></button>
-      <button class="mmm-item" onclick="nav('compare');toggleMobileMore()"><span class="mmm-icon">⚖️</span><span>Compare</span></button>
-      <button class="mmm-item" onclick="nav('map');toggleMobileMore()"><span class="mmm-icon">🗺</span><span>Map</span></button>
-      <button class="mmm-item" onclick="nav('settings');toggleMobileMore()"><span class="mmm-icon">⚙️</span><span>Config</span></button>
-    </div>
-    <div class="mmm-account" id="mmm-account">
-      <button class="mmm-signin-btn" id="mmm-signin" onclick="showAuthOverlay();toggleMobileMore()">Se connecter</button>
-      <button class="mmm-signout-btn" id="mmm-signout" onclick="doSignOut();toggleMobileMore()" style="display:none">Se déconnecter</button>
-      <span class="mmm-email" id="mmm-email"></span>
-    </div>
-  </div>
+  <button class="mnav-item" id="mob-pricing" onclick="nav('pricing',this)"><span class="mnav-icon">💎</span><span class="mnav-label">Pricing</span></button>
+  <button class="mnav-item" id="mob-ai" onclick="nav('ai',this)"><span class="mnav-icon">🤖</span><span class="mnav-label">IA</span></button>
+  <button class="mnav-item" id="mob-settings" onclick="nav('settings',this)"><span class="mnav-icon">⚙️</span><span class="mnav-label">Config</span></button>
 </div>
 <div id="auth-overlay" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(5,5,7,.95);backdrop-filter:blur(20px);align-items:center;justify-content:center">
   <div style="background:#13181F;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:32px;width:360px;max-width:90vw">
@@ -121,19 +122,28 @@
       <div style="font-size:20px;font-weight:800;color:#E6EDF3">TicketRadar</div>
       <div style="font-size:10px;color:#484F58;margin-top:4px;font-family:monospace" id="auth-subtitle">Connecte-toi pour sauvegarder tes données</div>
     </div>
-    <div style="display:flex;gap:4px;background:#0E1117;border-radius:8px;padding:3px;margin-bottom:20px">
+    <div id="auth-tabs" style="display:flex;gap:4px;background:#0E1117;border-radius:8px;padding:3px;margin-bottom:20px">
       <button id="tab-signin" onclick="switchAuthTab('signin')" style="flex:1;padding:7px;border-radius:6px;border:none;background:#1C2333;color:#2DD4A0;font-size:12px;font-weight:700;cursor:pointer">Connexion</button>
       <button id="tab-signup" onclick="switchAuthTab('signup')" style="flex:1;padding:7px;border-radius:6px;border:none;background:transparent;color:#484F58;font-size:12px;cursor:pointer">Inscription</button>
     </div>
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <input id="auth-email" type="email" placeholder="ton@email.com" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')document.getElementById('auth-password').focus()">
-      <div style="position:relative">
+    <div id="auth-form" style="display:flex;flex-direction:column;gap:10px">
+      <input id="auth-email" type="email" placeholder="ton@email.com" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter'){ if(_authMode==='reset')submitAuth(); else document.getElementById('auth-password').focus(); }">
+      <div id="auth-password-wrap" style="position:relative">
         <input id="auth-password" type="password" placeholder="Mot de passe" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 40px 11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')submitAuth()">
-        <button onclick="togglePwd()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:#484F58" id="pwd-eye">👁</button>
+        <button type="button" onclick="togglePwd()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:#484F58" id="pwd-eye">👁</button>
       </div>
+      <button type="button" id="auth-forgot-link" onclick="switchAuthTab('reset')" style="align-self:flex-end;background:none;border:none;color:#8B949E;font-size:11px;cursor:pointer;padding:0;text-decoration:underline">Mot de passe oublié ?</button>
       <div id="auth-error" style="font-size:11px;color:#FF5E5E;display:none;padding:8px 12px;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px"></div>
       <button onclick="submitAuth()" id="auth-submit-btn" style="background:#2DD4A0;color:#09090F;border:none;border-radius:8px;padding:13px;font-size:13px;font-weight:700;cursor:pointer;width:100%">Se connecter</button>
-      <button onclick="skipAuth()" style="background:transparent;color:#8B949E;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px;font-size:12px;cursor:pointer;width:100%">Continuer sans compte</button>
+      <button type="button" id="auth-back-signin" onclick="switchAuthTab('signin')" style="display:none;background:transparent;color:#8B949E;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px;font-size:12px;cursor:pointer;width:100%">← Retour à la connexion</button>
+      <button onclick="skipAuth()" id="auth-skip-btn" style="background:transparent;color:#8B949E;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px;font-size:12px;cursor:pointer;width:100%">Continuer sans compte</button>
+    </div>
+    <div id="auth-recovery" style="display:none;flex-direction:column;gap:10px">
+      <div style="font-size:12px;color:#8B949E;margin-bottom:4px">Choisis un nouveau mot de passe (6 caractères minimum).</div>
+      <input id="auth-new-password" type="password" placeholder="Nouveau mot de passe" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box">
+      <input id="auth-new-password2" type="password" placeholder="Confirmer le mot de passe" style="background:#0E1117;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:11px 14px;color:#E6EDF3;font-size:13px;outline:none;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')submitNewPassword()">
+      <div id="auth-recovery-error" style="font-size:11px;color:#FF5E5E;display:none;padding:8px 12px;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px"></div>
+      <button onclick="submitNewPassword()" id="auth-recovery-btn" style="background:#2DD4A0;color:#09090F;border:none;border-radius:8px;padding:13px;font-size:13px;font-weight:700;cursor:pointer;width:100%">Enregistrer le mot de passe</button>
     </div>
     <div id="auth-success" style="display:none;text-align:center;padding:16px;color:#2DD4A0;font-family:monospace;font-size:12px"></div>
   </div>
@@ -143,9 +153,9 @@
   <button onclick="doSignOut()" style="width:100%;background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);border-radius:8px;padding:10px;color:#FF5E5E;font-size:12px;font-weight:600;cursor:pointer">👋 Se déconnecter</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="./config.js?v=20260403c"></script>
-<script src="./components.js?v=20260403c"></script>
-<script src="./app.js?v=20260403c"></script>
-<script src="./supabase.js?v=20260403c"></script>
+<script src="./config.js?v=20260802"></script>
+<script src="./components.js?v=20260802"></script>
+<script src="./app.js?v=20260802"></script>
+<script src="./supabase.js?v=20260802"></script>
 </body>
 </html>

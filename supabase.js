@@ -26,6 +26,20 @@ async function sbSignIn(email, password) {
   return data;
 }
 
+/** Envoie un e-mail de réinitialisation (redirect vers l’app) */
+async function sbResetPassword(email) {
+  const redirectTo = new URL('.', window.location.href).href.split('#')[0];
+  const { data, error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw error;
+  return data;
+}
+
+async function sbUpdatePassword(newPassword) {
+  const { data, error } = await sb.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+  return data;
+}
+
 async function sbSignOut() {
   const { error } = await sb.auth.signOut();
   if (error) throw error;
@@ -255,12 +269,18 @@ async function sbDeleteCustomEvent(id) {
 
 sb.auth.onAuthStateChange(async (event, session) => {
   console.log('[Auth]', event, session?.user?.email || '—');
+  if (event === 'PASSWORD_RECOVERY' && session?.user) {
+    window.currentUser = session.user;
+    if (typeof showPasswordRecoveryModal === 'function') showPasswordRecoveryModal();
+    return;
+  }
   if (event === 'SIGNED_IN' && session?.user) {
     window.currentUser = session.user;
     await loadUserData(session.user.id);
+    if (typeof updateUserBtn === 'function') updateUserBtn();
   } else if (event === 'SIGNED_OUT') {
     window.currentUser = null;
-    // Reset to local state
+    if (typeof updateUserBtn === 'function') updateUserBtn();
     if (typeof render === 'function') render();
   }
 });
