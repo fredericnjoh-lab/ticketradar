@@ -3127,8 +3127,9 @@ function renderRapport(c) {
       <div style="padding:14px 18px;border-bottom:1px solid var(--b3)">
         <div style="font-size:10px;color:var(--t3);font-family:var(--font-mono);margin-bottom:8px">${fr?'Colle ici le JSON du rapport quotidien (généré par la tâche planifiée), ou charge un fichier :':'Paste the daily report JSON here, or load a file:'}</div>
         <textarea id="rapport-json" placeholder='{"date":"2026-08-01","events":[...]}' style="width:100%;min-height:90px;background:var(--bg4);border:1px solid var(--b3);border-radius:8px;color:var(--t1);font-family:var(--font-mono);font-size:10px;padding:10px;resize:vertical"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-          <button class="btn-primary" onclick="importRapportJSON()">📥 ${fr?'Analyser':'Parse'}</button>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn-primary" onclick="loadLatestRapport()">📡 ${fr?'Dernier rapport':'Latest report'}</button>
+          <button class="btn-ghost" onclick="importRapportJSON()">📥 ${fr?'Analyser le JSON collé':'Parse pasted JSON'}</button>
           <label style="background:var(--bg4);border:1px solid var(--b3);border-radius:8px;padding:6px 14px;font-size:10px;color:var(--t2);cursor:pointer;font-family:var(--font-mono)">
             📂 ${fr?'Fichier…':'File…'}<input type="file" accept=".json" style="display:none" onchange="importRapportFile(this)">
           </label>
@@ -3153,6 +3154,17 @@ function renderRapport(c) {
           <button class="btn-primary" onclick="importAllRapport()">📥 ${fr?'Tout importer':'Import all'}</button>
         </div>`}
     </div>`;
+}
+
+async function loadLatestRapport() {
+  const fr = S.lang === 'fr';
+  try {
+    const res = await fetch('data/rapport-latest.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    importRapportJSON(await res.text());
+  } catch (err) {
+    toast((fr?'Dernier rapport introuvable (':'Latest report not found (') + err.message + ')', '⚠');
+  }
 }
 
 function importRapportFile(input) {
