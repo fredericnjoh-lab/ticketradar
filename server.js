@@ -8,6 +8,8 @@
    
    Sécurité :
    - Token Telegram stocké en variable d'env (jamais exposé)
+   - JWT Supabase (SUPABASE_JWT_SECRET) pour /api/notify, /api/countdown, /api/create-checkout
+   - tg_chat_id lu côté serveur (profiles) pour Telegram — plus de chatId client arbitraire
    - CORS configuré
    - Rate limiting
    - Validation des inputs
@@ -16,6 +18,7 @@
 const express    = require('express');
 const cors       = require('cors');
 const axios      = require('axios');
+const jwt        = require('jsonwebtoken');
 const rateLimit  = require('express-rate-limit');
 let Stripe;
 try { Stripe = require('stripe'); } catch(e) { console.warn('⚠ Module stripe non installé — paiements désactivés'); }
@@ -39,6 +42,11 @@ const ANTHROPIC_API_KEY      = process.env.ANTHROPIC_API_KEY      || '';
 
 const LASTFM_API_KEY = (process.env.LASTFM_API_KEY || '').trim();
 
+/** Même valeur que Supabase Dashboard → Settings → API → JWT Secret (HS256) */
+const SUPABASE_JWT_SECRET   = (process.env.SUPABASE_JWT_SECRET   || '').trim();
+const SUPABASE_URL          = (process.env.SUPABASE_URL || 'https://ujjivtrfktlervncxvjq.supabase.co').replace(/\/$/, '');
+const SUPABASE_SERVICE_KEY  = (process.env.SUPABASE_SERVICE_KEY || '').trim();
+
 const STRIPE_SECRET_KEY     = (process.env.STRIPE_SECRET_KEY     || '').trim();
 const STRIPE_WEBHOOK_SECRET = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();
 const STRIPE_PRO_PRICE_ID   = (process.env.STRIPE_PRO_PRICE_ID  || '').trim();
@@ -49,12 +57,13 @@ if (!TICKETMASTER_API_KEY) console.warn('⚠ TICKETMASTER_API_KEY manquant — /
 if (!ANTHROPIC_API_KEY)    console.warn('⚠ ANTHROPIC_API_KEY manquant — /api/ai désactivé');
 if (!STRIPE_SECRET_KEY)    console.warn('⚠ STRIPE_SECRET_KEY manquant — paiements désactivés');
 if (!LASTFM_API_KEY)       console.warn('⚠ LASTFM_API_KEY manquant — enrichissement Last.fm désactivé');
+if (!SUPABASE_JWT_SECRET) console.warn('⚠ SUPABASE_JWT_SECRET manquant — /api/notify, /api/countdown et checkout Stripe refuseront les requêtes authentifiées');
 
 /* ── Middlewares ── */
 app.use(cors({
   origin: [ALLOWED_ORIGIN, 'http://localhost:3000', 'http://127.0.0.1:5500'],
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 /* Stripe webhook needs raw body — must be registered before express.json */
@@ -166,6 +175,44 @@ function validateEvent(ev) {
   );
 }
 
+/** Vérifie le JWT access Supabase (Authorization: Bearer) — ne fait pas confiance au body pour l’identité */
+function verifySupabaseAccessToken(req) {
+  if (!SUPABASE_JWT_SECRET) return null;
+  const raw = req.headers.authorization || '';
+  const m = /^Bearer\s+(\S+)/i.exec(raw);
+  if (!m) return null;
+  try {
+    const payload = jwt.verify(m[1], SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
+    if (!payload.sub) return null;
+    return { userId: String(payload.sub), email: payload.email ? String(payload.email) : null };
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Chat Telegram depuis la table profiles (service role), jamais depuis le client seul */
+async function getProfileTelegramChatId(userId) {
+  if (!SUPABASE_SERVICE_KEY || !userId) return null;
+  try {
+    const url = new URL(`/rest/v1/profiles`, SUPABASE_URL);
+    url.searchParams.set('id', `eq.${userId}`);
+    url.searchParams.set('select', 'tg_chat_id');
+    const res = await axios.get(url.toString(), {
+      headers: {
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+      timeout: 8000,
+    });
+    const row = Array.isArray(res.data) ? res.data[0] : null;
+    const id = row?.tg_chat_id;
+    return id != null && String(id).trim() !== '' ? String(id).trim() : null;
+  } catch (e) {
+    console.error('[Profile] tg_chat_id:', e.message);
+    return null;
+  }
+}
+
 /* ════════════════════════════════════════
    ROUTES
 ════════════════════════════════════════ */
@@ -181,6 +228,7 @@ app.get('/api/health', (req, res) => {
     anthropic:   ANTHROPIC_API_KEY    ? 'configured' : 'missing',
     lastfm:      LASTFM_API_KEY      ? 'configured' : 'missing',
     stripe:      STRIPE_SECRET_KEY   ? 'configured' : 'missing',
+    supabase_jwt: SUPABASE_JWT_SECRET ? 'configured' : 'missing',
     sheet:       SHEET_URL            ? 'configured' : 'missing',
     chat_id:     TELEGRAM_CHAT_ID     ? 'configured' : 'missing',
     endpoints:   ['/api/scan', '/api/scan/top', '/api/notify', '/api/ai', '/api/countdown', '/api/plans', '/api/create-checkout'],
@@ -188,39 +236,66 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-/* ── POST /api/notify ── */
+/* ── POST /api/notify ── JWT Supabase + tg_chat_id serveur uniquement ── */
 app.post('/api/notify', async (req, res) => {
-  const { events = [], drops = [], seuil = 30, chatId } = req.body;
+  const auth = verifySupabaseAccessToken(req);
+  if (!auth) {
+    return res.status(401).json({
+      error: 'Non authentifié',
+      hint: 'Envoie Authorization: Bearer (access_token Supabase). Configure SUPABASE_JWT_SECRET sur le serveur.',
+    });
+  }
 
-  // Validation basique
+  const targetChatId = await getProfileTelegramChatId(auth.userId);
+  if (!targetChatId) {
+    return res.status(400).json({
+      error: 'Chat Telegram non configuré',
+      hint: 'Enregistre ton Chat ID dans Profil (synchronisé vers Supabase) puis réessaie.',
+    });
+  }
+
+  const { events = [], drops = [], seuil = 30, test } = req.body;
+
   if (!Array.isArray(events)) {
     return res.status(400).json({ error: 'events doit être un tableau' });
   }
 
-  let sent = 0;
-
-  // 1. Alertes opportunités
   const hits = events
     .filter(ev => validateEvent(ev) && ev.marge >= seuil)
     .sort((a, b) => b.marge - a.marge)
-    .slice(0, 5); // Max 5 alertes par scan
+    .slice(0, 5);
 
-  for (const ev of hits) {
-    const ok = await sendTelegram(buildMessage(ev, 'opportunity'), chatId);
-    if (ok) {
-      sent++;
-      // Petite pause pour éviter le flood Telegram
-      await new Promise(r => setTimeout(r, 300));
-    }
-  }
-
-  // 2. Alertes chutes de prix
   const validDrops = (drops || [])
     .filter(ev => validateEvent(ev))
     .slice(0, 2);
 
+  if (test === true && hits.length === 0 && validDrops.length === 0) {
+    const ok = await sendTelegram(
+      `🧪 <b>TicketRadar</b> — Test connexion OK`,
+      targetChatId
+    );
+    return res.json({
+      success: true,
+      sent: ok ? 1 : 0,
+      opportunities: 0,
+      drops: 0,
+      test: true,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  let sent = 0;
+
+  for (const ev of hits) {
+    const ok = await sendTelegram(buildMessage(ev, 'opportunity'), targetChatId);
+    if (ok) {
+      sent++;
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
   for (const ev of validDrops) {
-    const ok = await sendTelegram(buildMessage(ev, 'drop'), chatId);
+    const ok = await sendTelegram(buildMessage(ev, 'drop'), targetChatId);
     if (ok) {
       sent++;
       await new Promise(r => setTimeout(r, 300));
@@ -945,11 +1020,27 @@ async function sendCountdownAlerts(events, chatId) {
 
 /* ── POST /api/countdown ── */
 app.post('/api/countdown', async (req, res) => {
-  const { events = [], chatId } = req.body;
+  const auth = verifySupabaseAccessToken(req);
+  if (!auth) {
+    return res.status(401).json({
+      error: 'Non authentifié',
+      hint: 'Authorization: Bearer (jeton Supabase) requis.',
+    });
+  }
+
+  const targetChatId = await getProfileTelegramChatId(auth.userId);
+  if (!targetChatId) {
+    return res.status(400).json({
+      error: 'Chat Telegram non configuré',
+      hint: 'Enregistre ton Chat ID dans Profil.',
+    });
+  }
+
+  const { events = [] } = req.body;
   if (!Array.isArray(events)) return res.status(400).json({ error: 'events requis' });
 
   const validEvents = events.filter(validateEvent);
-  const sent = await sendCountdownAlerts(validEvents, chatId);
+  const sent = await sendCountdownAlerts(validEvents, targetChatId);
 
   // Also return which events have upcoming dates
   const upcoming = validEvents.map(ev => ({
@@ -1086,7 +1177,7 @@ app.get('/api/plans', (req, res) => {
   res.json({ plans: [PLANS.free, PLANS.pro] });
 });
 
-/* ── POST /api/create-checkout ── */
+/* ── POST /api/create-checkout ── Identité = JWT uniquement (ignore body userId / email falsifiables) ── */
 app.post('/api/create-checkout', async (req, res) => {
   if (!stripe) {
     return res.status(503).json({ error: 'Stripe non configuré — STRIPE_SECRET_KEY manquant' });
@@ -1095,15 +1186,25 @@ app.post('/api/create-checkout', async (req, res) => {
     return res.status(503).json({ error: 'STRIPE_PRO_PRICE_ID manquant ou invalide. Crée un prix dans Stripe Dashboard et ajoute l\'ID (price_xxx) dans les env vars.' });
   }
 
-  const { email, userId } = req.body;
-  if (!email) return res.status(400).json({ error: 'email requis' });
+  const auth = verifySupabaseAccessToken(req);
+  if (!auth) {
+    return res.status(401).json({
+      error: 'Non authentifié',
+      hint: 'Authorization: Bearer (session Supabase) requis pour payer.',
+    });
+  }
+
+  const email = auth.email || (typeof req.body.email === 'string' ? req.body.email.trim() : '');
+  if (!email) {
+    return res.status(400).json({ error: 'Email indisponible — reconnecte-toi avec un compte email.' });
+  }
 
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
       customer_email: email,
-      metadata: { supabase_user_id: userId || '' },
+      metadata: { supabase_user_id: auth.userId },
       line_items: [{ price: STRIPE_PRO_PRICE_ID, quantity: 1 }],
       success_url: `${ALLOWED_ORIGIN}/ticketradar/?upgrade=success`,
       cancel_url:  `${ALLOWED_ORIGIN}/ticketradar/?upgrade=cancel`,

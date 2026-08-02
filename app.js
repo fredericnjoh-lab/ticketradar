@@ -97,6 +97,18 @@ function toast(msg, icon='✓') {
   setTimeout(() => el.classList.remove('show'), 3000);
 }
 
+/** En-têtes pour les routes backend protégées (JWT Supabase) */
+async function backendAuthHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.access_token) {
+      h['Authorization'] = 'Bearer ' + session.access_token;
+    }
+  }
+  return h;
+}
+
 function saveState() {
   localStorage.setItem('tr-lang', S.lang);
   localStorage.setItem('tr-seuil', S.seuil);
@@ -191,6 +203,7 @@ async function loadSheet() {
           prevResale: resale,
           presale_date: String(row.presale_date || row.presaledate || ''),
           presale_code: String(row.presale_code || row.presalecode || '').toUpperCase(),
+          ...reportFields(row),
           starred: false, custom: false, live: false,
         };
       }).filter(e => e.name && e.face > 0);
@@ -239,6 +252,7 @@ function parseSheetCSV(text) {
       face, resale, marge, score, prevResale:resale,
       presale_date: row.presale_date || row.presaledate || '',
       presale_code: (row.presale_code || row.presalecode || '').toUpperCase(),
+      ...reportFields(row),
       starred:false, custom:false, live:false,
     };
   }).filter(e => e.name && e.face > 0);
@@ -253,6 +267,52 @@ function splitCSV(line) {
   }
   result.push(current);
   return result;
+}
+
+/* ── Champs "Rapport marché secondaire" (scores 4 axes, reco, conformité) ── */
+const COMPLIANCE_FLAGS = {
+  TRANSFERT_BLOQUE: { label:'Transfert bloqué', icon:'🔒', color:'red',  tip:'Transfert désactivé par l\'organisateur — revente impossible' },
+  MOBILE_ID:        { label:'Mobile ID',        icon:'📱', color:'gold', tip:'Billet AXS Mobile ID (code-barres dynamique) — vérifier si transférable' },
+  REVENTE_INTERDITE:{ label:'Revente interdite',icon:'⛔', color:'red',  tip:'Revente interdite par les CGV — annulation sans remboursement possible' },
+  FANCLUB_LOCK:     { label:'Prévente verrouillée', icon:'🎫', color:'gold', tip:'Billet de prévente fan club — souvent non transférable' },
+  JURIDICTION:      { label:'Juridiction',      icon:'⚖️', color:'red',  tip:'Restriction légale locale (plafond de prix, autorisation requise)' },
+  VERIF_ID:         { label:'Vérif. identité',  icon:'🪪', color:'gold', tip:'Contrôle d\'identité possible à l\'entrée' },
+};
+
+function reportFields(row) {
+  const clamp10 = v => { const n = parseFloat(v); return isNaN(n) ? 0 : Math.min(Math.max(n,0),10); };
+  let flags = row.flags || [];
+  if (typeof flags === 'string') flags = flags.split(/[;,|]/).map(f=>f.trim().toUpperCase()).filter(Boolean);
+  flags = flags.filter(f => COMPLIANCE_FLAGS[f]);
+  let reco = String(row.reco || row.recommandation || '').toUpperCase().replace('É','E');
+  if (!['ACHETER','SURVEILLER','EVITER'].includes(reco)) reco = '';
+  return {
+    demande: clamp10(row.demande), rarete: clamp10(row.rarete),
+    liquidite: clamp10(row.liquidite), risque: clamp10(row.risque),
+    reco, flags,
+  };
+}
+
+function recoBadge(e) {
+  if (!e.reco) return '';
+  const map = { ACHETER:['var(--green)','rgba(45,212,160,.10)','rgba(45,212,160,.25)'], SURVEILLER:['var(--gold2)','rgba(212,168,67,.10)','rgba(212,168,67,.25)'], EVITER:['var(--red)','rgba(255,94,94,.10)','rgba(255,94,94,.25)'] };
+  const [col,bg,bdr] = map[e.reco] || map.SURVEILLER;
+  const lbl = e.reco === 'EVITER' ? 'ÉVITER' : e.reco;
+  return `<span style="display:inline-flex;align-items:center;font-size:8px;font-weight:700;font-family:var(--font-mono);padding:1px 6px;border-radius:3px;background:${bg};color:${col};border:1px solid ${bdr};margin-left:4px">${lbl}</span>`;
+}
+
+function flagBadges(e) {
+  return (e.flags||[]).map(f => {
+    const fl = COMPLIANCE_FLAGS[f]; if (!fl) return '';
+    const col = fl.color === 'red' ? 'var(--red)' : 'var(--gold2)';
+    const bdr = fl.color === 'red' ? 'rgba(255,94,94,.25)' : 'rgba(212,168,67,.25)';
+    return `<span title="${fl.tip}" style="display:inline-flex;align-items:center;font-size:8px;font-family:var(--font-mono);padding:1px 5px;border-radius:3px;color:${col};border:1px solid ${bdr};margin-left:3px;cursor:help">${fl.icon} ${fl.label}</span>`;
+  }).join('');
+}
+
+function axesTooltip(e) {
+  if (!e.demande && !e.rarete && !e.liquidite && !e.risque) return '';
+  return `Demande ${e.demande}/10 · Rareté ${e.rarete}/10 · Liquidité ${e.liquidite}/10 · Risque ${e.risque}/10`;
 }
 
 function updateDataSourceInfo(status, count=0, error='') {
@@ -364,30 +424,32 @@ async function scanLiveData(query = '', seuil = 0) {
    TELEGRAM DIRECT
 ══════════════════════════════════════════════ */
 async function sendTelegramDirect(events, seuil) {
-  // Stratégie 1 : Backend Node.js (sécurisé — token côté serveur)
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
-  if (backendUrl) {
-    try {
-      const res = await fetch(backendUrl + '/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          events: events.filter(e => e.marge >= seuil).slice(0, 5),
-          drops:  events.filter(e => hasDrop(e) && dropPct(e) <= -5).slice(0, 2),
-          seuil,
-          chatId: S.tgChatId,  // Le token reste côté serveur
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.sent || 0;
-      }
-    } catch(e) {
-      console.warn('[TG] Backend indisponible, fallback direct:', e.message);
+  if (!backendUrl) return 0;
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return 0;
+  } else return 0;
+  try {
+    const res = await fetch(backendUrl + '/api/notify', {
+      method: 'POST',
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({
+        events: events.filter(e => e.marge >= seuil).slice(0, 5),
+        drops:  events.filter(e => hasDrop(e) && dropPct(e) <= -5).slice(0, 2),
+        seuil,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.sent || 0;
     }
+    if (res.status === 401 || res.status === 400) {
+      console.warn('[TG] Backend notify:', res.status, await res.text());
+    }
+  } catch (e) {
+    console.warn('[TG] Backend indisponible:', e.message);
   }
-
-  // No direct Telegram fallback — backend only
   return 0;
 }
 
@@ -568,6 +630,7 @@ function buildMobileCards(evs) {
           <span class="mec-pill">${e.platform||'—'}</span>
           <span class="cat-tag ct-${e.cat}">${e.cat.toUpperCase()}</span>
         </div>
+        ${(e.reco || (e.flags||[]).length) ? `<div class="mec-row">${recoBadge(e)}${flagBadges(e)}</div>` : ''}
         <div class="mec-actions">
           <button class="mec-btn mec-buy" onclick="openPlatform(${e.id})">🛒 ${fr?'Acheter':'Buy'}</button>
           <button class="mec-btn mec-kanban" onclick="addToKanban(${e.id},'watch')">🗂</button>
@@ -605,6 +668,7 @@ function buildTable(evs) {
           ${e.live?'<span class="live-badge">LIVE</span>':''}
           ${e.discovered?'<span style="display:inline-flex;align-items:center;font-size:8px;font-weight:700;font-family:var(--font-mono);padding:1px 6px;border-radius:3px;background:rgba(45,212,160,.10);color:#2DD4A0;border:1px solid rgba(45,212,160,.22);margin-left:4px">DÉCOUVERT</span>':''}
           ${drop&&dpct<=-5?`<span class="drop-badge">📉 ${dpct}%</span>`:''}
+          ${recoBadge(e)}${flagBadges(e)}
         </div>
         <div class="ev-sub">${e.sub||''} · ${e.date}</div>
       </td>
@@ -613,7 +677,7 @@ function buildTable(evs) {
       <td class="mf">${e.discovered && !e.face ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.face.toLocaleString()+'€'}</td>
       <td class="mr" style="color:${drop&&dpct<=-5?'var(--red)':'var(--t1)'}">${e.discovered && !e.resale ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.resale.toLocaleString()+'€'}${drop&&dpct<=-5?` <span style="font-size:9px;color:var(--red)">(${dpct}%)</span>`:''}</td>
       <td>${e.discovered && !e.marge ? '<span style="color:var(--t3);font-style:italic">—</span>' : `<span class="mb ${mc(e.marge)}">+${e.marge}%</span>`}</td>
-      <td><div style="display:flex;align-items:center;gap:6px"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
+      <td title="${axesTooltip(e)}"><div style="display:flex;align-items:center;gap:6px;${axesTooltip(e)?'cursor:help':''}"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
       <td>${e.spotify_popularity ? `<div style="display:flex;align-items:center;gap:4px" title="Spotify: ${e.spotify_popularity}/100 · ${(e.spotify_followers||0).toLocaleString()} followers"><span style="color:${e.spotify_popularity>70?'#1DB954':e.spotify_popularity>40?'var(--gold2)':'var(--t4)'};font-size:10px;font-weight:700;font-family:var(--font-mono)">${e.spotify_popularity}</span><div style="width:28px;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden"><div style="width:${e.spotify_popularity}%;height:100%;background:${e.spotify_popularity>70?'#1DB954':e.spotify_popularity>40?'var(--gold2)':'var(--t4)'}"></div></div></div>` : '<span style="color:var(--t4);font-size:9px">—</span>'}</td>
       <td><span class="plat-tag">${e.platform}</span></td>
       <td>
@@ -936,6 +1000,7 @@ function render() {
   else if (S.view === 'ai') renderAIPredictor(c);
   else if (S.view === 'presale') renderPresaleTracker(c);
   else if (S.view === 'discover') renderDiscover(c);
+  else if (S.view === 'rapport') renderRapport(c);
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'goals') renderGoals(c);
   else if (S.view === 'pricing') renderPricing(c);
@@ -2014,16 +2079,20 @@ async function saveProfileName(name) {
 async function profileTestTg() {
   const chatId = document.getElementById('prof-chatid')?.value.trim();
   if (!chatId) { toast(S.lang==='fr'?'Entre ton Chat ID':'Enter Chat ID','⚠'); return; }
+  const user = window.currentUser;
+  if (!user) { toast(S.lang==='fr'?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) { toast(S.lang==='fr'?'Backend non configure':'Backend not configured','⚠'); return; }
   try {
+    await sbUpdateProfile(user.id, { tg_chat_id: chatId });
     const res = await fetch(backendUrl + '/api/notify', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ events:[], drops:[], seuil:0, chatId, test:true })
+      method: 'POST',
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({ events: [], drops: [], seuil: 0, test: true }),
     });
     const d = await res.json();
     if (res.ok) toast(S.lang==='fr'?'✓ Message Telegram envoye !':'✓ Telegram message sent!','📱');
-    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||'unknown'),'⚠');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.hint||'unknown'),'⚠');
   } catch(e) { toast('Erreur: '+e.message,'⚠'); }
 }
 
@@ -2174,8 +2243,8 @@ async function startProCheckout() {
     toast(fr?'Redirection vers Stripe...':'Redirecting to Stripe...','💳');
     const res = await fetch(backendUrl + '/api/create-checkout', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: user.email, userId: user.id || '' })
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({}),
     });
     const data = await res.json();
     if (data.url) {
@@ -2287,14 +2356,18 @@ async function testTgDirect() {
   if (!chatid) { toast(S.lang==='fr'?'Renseigne le chat ID':'Enter chat ID','⚠'); return; }
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) { toast(S.lang==='fr'?'Configure l\'URL du backend':'Configure backend URL','⚠'); return; }
+  const user = window.currentUser;
+  if (!user) { toast(S.lang==='fr'?'Connecte-toi pour tester via le backend securise':'Sign in to test via secure backend','⚠'); return; }
   try {
+    await sbUpdateProfile(user.id, { tg_chat_id: chatid });
     const r = await fetch(backendUrl + '/api/notify', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ events:[], drops:[], seuil:0, chatId:chatid, test:true })
+      method: 'POST',
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({ events: [], drops: [], seuil: 0, test: true }),
     });
     const d = await r.json();
     if (r.ok) toast(S.lang==='fr'?'✓ Message Telegram reçu !':'✓ Telegram message received!','📱');
-    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.description),'⚠');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.hint||d.description),'⚠');
   } catch(e) { toast('Erreur : '+e.message,'⚠'); }
 }
 
@@ -2381,11 +2454,15 @@ function applyTheme() {
 async function checkCountdownAlerts(events) {
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) return;
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return;
+  } else return;
   try {
     const res = await fetch(backendUrl + '/api/countdown', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events, chatId: S.tgChatId })
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({ events }),
     });
     if (!res.ok) return;
     const data = await res.json();
@@ -2915,6 +2992,117 @@ function importDiscoveredEvent(idx) {
 }
 
 /* ══════════════════════════════════════════════
+   RAPPORT — Import du rapport quotidien (marché secondaire)
+══════════════════════════════════════════════ */
+function renderRapport(c) {
+  const fr = S.lang === 'fr';
+  const evs = S._rapportEvents || [];
+  const meta = S._rapportMeta || {};
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">📄 ${fr?'Rapport quotidien':'Daily report'}</span>
+        <span class="card-meta">${meta.date ? (fr?'Rapport du ':'Report of ')+meta.date : (fr?'Aucun rapport chargé':'No report loaded')}</span>
+      </div>
+      <div style="padding:14px 18px;border-bottom:1px solid var(--b3)">
+        <div style="font-size:10px;color:var(--t3);font-family:var(--font-mono);margin-bottom:8px">${fr?'Colle ici le JSON du rapport quotidien (généré par la tâche planifiée), ou charge un fichier :':'Paste the daily report JSON here, or load a file:'}</div>
+        <textarea id="rapport-json" placeholder='{"date":"2026-08-01","events":[...]}' style="width:100%;min-height:90px;background:var(--bg4);border:1px solid var(--b3);border-radius:8px;color:var(--t1);font-family:var(--font-mono);font-size:10px;padding:10px;resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <button class="btn-primary" onclick="importRapportJSON()">📥 ${fr?'Analyser':'Parse'}</button>
+          <label style="background:var(--bg4);border:1px solid var(--b3);border-radius:8px;padding:6px 14px;font-size:10px;color:var(--t2);cursor:pointer;font-family:var(--font-mono)">
+            📂 ${fr?'Fichier…':'File…'}<input type="file" accept=".json" style="display:none" onchange="importRapportFile(this)">
+          </label>
+        </div>
+      </div>
+      ${evs.length === 0 ? `
+        <div class="empty"><div class="empty-icon">📄</div><div class="empty-txt">${fr?'Les événements du rapport apparaîtront ici':'Report events will appear here'}</div></div>` : `
+        ${evs.map((e,i) => `
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--b3)">
+            <div style="flex:1">
+              <div style="font-size:12.5px;font-weight:600;font-family:var(--font-head)">${e.flag||'🎫'} ${e.name} ${recoBadge(e)}${flagBadges(e)}</div>
+              <div style="font-size:9.5px;color:var(--t3);font-family:var(--font-mono);margin-top:2px">${e.sub||''} · ${e.date||'?'} · ${e.platform||'—'}${axesTooltip(e)?' · '+axesTooltip(e):''}</div>
+              ${e.notes?`<div style="font-size:9.5px;color:var(--t3);margin-top:2px">${e.notes}</div>`:''}
+            </div>
+            ${e._imported ? `<span style="font-size:9px;color:var(--green);font-family:var(--font-mono)">✓ ${fr?'importé':'imported'}</span>` : `
+            <button onclick="importRapportEvent(${i})"
+              style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
+              + ${fr?'Importer':'Import'}
+            </button>`}
+          </div>`).join('')}
+        <div class="form-actions">
+          <button class="btn-primary" onclick="importAllRapport()">📥 ${fr?'Tout importer':'Import all'}</button>
+        </div>`}
+    </div>`;
+}
+
+function importRapportFile(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => importRapportJSON(reader.result);
+  reader.readAsText(f);
+}
+
+function importRapportJSON(text) {
+  const fr = S.lang === 'fr';
+  const raw = text || (document.getElementById('rapport-json')||{}).value || '';
+  if (!raw.trim()) { toast(fr?'Colle d\'abord le JSON du rapport':'Paste the report JSON first','⚠'); return; }
+  try {
+    const data = JSON.parse(raw.trim());
+    const arr = Array.isArray(data) ? data : (data.events || []);
+    if (!arr.length) throw new Error(fr?'Aucun événement dans le rapport':'No events in report');
+    const existing = new Set(allEvs().map(e => e.name.toLowerCase()));
+    S._rapportMeta = { date: data.date || '' };
+    S._rapportEvents = arr.map(row => {
+      const face = parseFloat(row.face) || 0;
+      const resale = parseFloat(row.resale) || 0;
+      const marge = face > 0 ? Math.round(((resale*0.85 - face)/face)*100) : 0;
+      return {
+        name: String(row.name||''), sub: String(row.sub||row.venue||row.city||''),
+        date: String(row.date||''), h: String(row.horizon||row.h||'mid'),
+        country: String(row.country||'US'), flag: String(row.flag||'🎫'),
+        cat: String(row.cat||'concert'), platform: String(row.platform||''),
+        face, resale, marge,
+        score: parseFloat(row.score) || 0,
+        presale_date: String(row.presale_date||''), presale_code: String(row.presale_code||'').toUpperCase(),
+        notes: String(row.notes||''),
+        ...reportFields(row),
+        _imported: existing.has(String(row.name||'').toLowerCase()),
+      };
+    }).filter(e => e.name);
+    render();
+    toast(`📄 ${S._rapportEvents.length} ${fr?'événements analysés':'events parsed'}`,'✓');
+  } catch (err) {
+    toast((fr?'JSON invalide : ':'Invalid JSON: ') + err.message, '⚠');
+  }
+}
+
+function importRapportEvent(idx) {
+  const e = (S._rapportEvents || [])[idx];
+  if (!e || e._imported) return;
+  S.customEvents.push({
+    id: S.nextId++,
+    name: e.name, sub: e.sub, date: e.date, h: e.h,
+    country: e.country, flag: e.flag, cat: e.cat, platform: e.platform,
+    face: e.face, resale: e.resale, marge: e.marge, prevResale: e.resale,
+    score: e.score || Math.max(1, Math.round(((e.demande||0)+(e.rarete||0)+(e.liquidite||0)+(10-(e.risque||0)))/4)) || 5,
+    demande: e.demande, rarete: e.rarete, liquidite: e.liquidite, risque: e.risque,
+    reco: e.reco, flags: e.flags,
+    presale_date: e.presale_date, presale_code: e.presale_code,
+    qty: 0, notes: e.notes || 'Importé du rapport quotidien',
+    starred: false, custom: true, live: false,
+  });
+  e._imported = true;
+  saveState();
+  render();
+  toast(S.lang==='fr'?`"${e.name.slice(0,25)}" importé !`:`"${e.name.slice(0,25)}" imported!`, '✓');
+}
+
+function importAllRapport() {
+  (S._rapportEvents || []).forEach((e,i) => { if (!e._imported) importRapportEvent(i); });
+}
+
+/* ══════════════════════════════════════════════
    MAP — Carte interactive des events
 ══════════════════════════════════════════════ */
 const COUNTRY_COORDS = {
@@ -3208,9 +3396,12 @@ function getPresaleStatus(ev) {
 }
 
 async function sendPresaleAlerts(events) {
-  if (!S.tgChatId) return 0;
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) return 0;
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return 0;
+  } else return 0;
 
   const ALERT_DAYS = [3, 1, 0];
   const presaleEvents = events.filter(ev => {
@@ -3223,14 +3414,13 @@ async function sendPresaleAlerts(events) {
   try {
     const res = await fetch(backendUrl + '/api/notify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await backendAuthHeaders(),
       body: JSON.stringify({
         events: presaleEvents,
         drops: [],
         seuil: 0,
-        chatId: S.tgChatId,
-        presaleAlert: true
-      })
+        presaleAlert: true,
+      }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -3538,32 +3728,6 @@ async function runDashAI() {
 }
 
 window.runDashAI           = runDashAI;
-
-function toggleMobileMore() {
-  const el = document.getElementById('mobile-more-menu');
-  if (!el) return;
-  el.classList.toggle('open');
-  updateMobileAccountUI();
-}
-window.toggleMobileMore = toggleMobileMore;
-
-function showAuthOverlay() {
-  showAuthModal();
-}
-window.showAuthOverlay = showAuthOverlay;
-
-function updateMobileAccountUI() {
-  const user = window.currentUser;
-  const signinBtn = document.getElementById('mmm-signin');
-  const signoutBtn = document.getElementById('mmm-signout');
-  const emailEl = document.getElementById('mmm-email');
-  const avatarBtn = document.getElementById('mob-avatar');
-  if (signinBtn) signinBtn.style.display = user ? 'none' : 'block';
-  if (signoutBtn) signoutBtn.style.display = user ? 'block' : 'none';
-  if (emailEl) emailEl.textContent = user ? user.email : '';
-  if (avatarBtn) avatarBtn.textContent = user ? '●' : '👤';
-}
-window.updateMobileAccountUI = updateMobileAccountUI;
 
 function setDashQ(q) {
   const el = document.getElementById('ai-q-dash');
