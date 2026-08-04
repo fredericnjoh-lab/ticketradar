@@ -3586,14 +3586,19 @@ async function renderPresaleTracker(c) {
 
   let intel = null;
   let intelErr = null;
+  let outcomesPayload = null;
   if (backendUrl) {
     try {
       const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
       const url = new URL('api/presales', base);
       url.searchParams.set('days', '30');
-      const res = await fetch(url.toString());
-      intel = await res.json();
-      if (!res.ok || intel?.ok === false) intelErr = intel?.error || `HTTP ${res.status}`;
+      const [resIntel, resOut] = await Promise.all([
+        fetch(url.toString()),
+        fetch(new URL('api/presales/outcomes', base).toString()).catch(() => null),
+      ]);
+      intel = await resIntel.json();
+      if (!resIntel.ok || intel?.ok === false) intelErr = intel?.error || `HTTP ${resIntel.status}`;
+      if (resOut && resOut.ok) outcomesPayload = await resOut.json();
     } catch (e) {
       intelErr = e.message || 'network';
     }
@@ -3605,6 +3610,12 @@ async function renderPresaleTracker(c) {
   const j1 = intel?.j1 || [];
   const summary = intel?.summary || { buy: 0, watch: 0, avoid: 0, new: 0, j1: 0 };
   const total = intel?.total || 0;
+  const calibration = intel?.calibration || outcomesPayload?.calibration || null;
+  const outcomes = outcomesPayload?.outcomes || [];
+  window.__presaleOpps = {};
+  [...top10, ...j1, ...(intel?.opportunities || [])].forEach(o => {
+    if (o?.id) window.__presaleOpps[o.id] = o;
+  });
 
   const decisionStyle = (d) => {
     if (d === 'Buy') return { col: 'var(--green)', bg: 'rgba(45,212,160,.12)', label: 'Buy' };
@@ -3628,6 +3639,7 @@ async function renderPresaleTracker(c) {
       : '';
     const cats = (o.categories || []).slice(0, 3);
     const comps = (o.comps || []).slice(0, 2);
+    const oid = esc(o.id || '');
     return `
       <div style="padding:12px 18px;border-bottom:1px solid var(--b3)">
         <div style="display:flex;align-items:center;gap:12px">
@@ -3658,8 +3670,12 @@ async function renderPresaleTracker(c) {
             ${risk ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">⚠ ${esc(risk)}</div>` : ''}
             ${o.decision_reason ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${esc(o.decision_reason)}</div>` : ''}
           </div>
-          ${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"
-            style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);text-decoration:none;font-family:var(--font-mono);flex-shrink:0">TM →</a>` : ''}
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+            ${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"
+              style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);text-decoration:none;font-family:var(--font-mono);text-align:center">TM →</a>` : ''}
+            ${oid ? `<button type="button" onclick="logPresaleOutcome('${oid}')"
+              style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:5px 10px;font-size:10px;color:var(--t2);font-family:var(--font-mono);cursor:pointer">${fr ? 'Log trade' : 'Log trade'}</button>` : ''}
+          </div>
         </div>
         ${cats.length ? `
         <div style="margin-top:10px;overflow-x:auto">
@@ -3692,12 +3708,49 @@ async function renderPresaleTracker(c) {
       </div>`;
   };
 
+  const outcomeRow = (o) => {
+    const err = o.error_resale_pct;
+    const errCol = err == null ? 'var(--t4)' : Math.abs(err) <= 15 ? 'var(--green)' : err > 0 ? 'var(--gold2)' : 'var(--red)';
+    const stCol = o.status === 'sold' ? 'var(--green)' : o.status === 'listed' ? 'var(--purple)' : 'var(--gold2)';
+    return `
+      <div style="padding:12px 18px;border-bottom:1px solid var(--b3)">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+              <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${esc(o.name)}</span>
+              <span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;color:${stCol};border:1px solid ${stCol}40;background:var(--bg3)">${esc(o.status)}</span>
+              ${o.category ? `<span style="font-family:var(--font-mono);font-size:8px;color:var(--t4)">${esc(o.category)}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
+              <span>MaxBuy ${esc(o.recommended_max_buy ?? '—')}€</span>
+              <span>Payé ${esc(o.paid_face ?? '—')}€</span>
+              ${o.listed_price ? `<span>Listé ${esc(o.listed_price)}€</span>` : ''}
+              ${o.sold_price ? `<span>Vendu ${esc(o.sold_price)}€</span>` : ''}
+              ${o.forecast_resale_median ? `<span>Prév ${esc(o.forecast_resale_median)}€</span>` : ''}
+              ${o.profit_net != null ? `<span style="color:${o.profit_net >= 0 ? 'var(--green)' : 'var(--red)'}">P&L ${o.profit_net >= 0 ? '+' : ''}${esc(o.profit_net)}€</span>` : ''}
+              ${err != null ? `<span style="color:${errCol}">Err ${err > 0 ? '+' : ''}${esc(err)}%</span>` : ''}
+              ${o.hold_days != null ? `<span>Hold ${esc(o.hold_days)}j</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+            ${o.status === 'bought' ? `<button type="button" onclick="markPresaleListed('${esc(o.id)}')" style="background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:4px 8px;font-size:9px;font-family:var(--font-mono);color:var(--t2);cursor:pointer">${fr ? '→ Listé' : '→ Listed'}</button>` : ''}
+            ${o.status === 'bought' || o.status === 'listed' ? `<button type="button" onclick="markPresaleSold('${esc(o.id)}')" style="background:rgba(45,212,160,.12);border:1px solid var(--green)40;border-radius:6px;padding:4px 8px;font-size:9px;font-family:var(--font-mono);color:var(--green);cursor:pointer">${fr ? '→ Vendu' : '→ Sold'}</button>` : ''}
+            <button type="button" onclick="deletePresaleOutcome('${esc(o.id)}')" style="background:transparent;border:none;font-size:9px;font-family:var(--font-mono);color:var(--t4);cursor:pointer">✕</button>
+          </div>
+        </div>
+      </div>`;
+  };
+
   // Sheet-based fallback section (legacy)
   const evs = allEvs();
   const withPresale = evs.filter(e => e.presale_date || e.presale).map(e => ({
     ...e, _ps: getPresaleStatus(e)
   })).sort((a, b) => (a._ps?.days ?? 999) - (b._ps?.days ?? 999));
   const upcomingSheet = withPresale.filter(e => e._ps && e._ps.days >= 0 && e._ps.days <= 30);
+
+  const cal = calibration || {};
+  const openOutcomes = outcomes.filter(o => o.status === 'bought' || o.status === 'listed');
+  const soldOutcomes = outcomes.filter(o => o.status === 'sold');
 
   c.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
@@ -3721,6 +3774,44 @@ async function renderPresaleTracker(c) {
         <div style="font-family:var(--font-mono);font-size:11px;color:var(--red)">⚠ ${fr ? 'Presale API' : 'Presale API'}: ${esc(intelErr)}</div>
         <div style="font-family:var(--font-mono);font-size:10px;color:var(--t4);margin-top:4px">${fr ? 'Vérifie le backend + TICKETMASTER_API_KEY sur Render.' : 'Check backend + TICKETMASTER_API_KEY on Render.'}</div>
       </div>` : ''}
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">📈 ${fr ? 'Feedback loop (Sprint 3)' : 'Feedback loop (Sprint 3)'}</span>
+        <span class="card-meta">${cal.n_sold || 0} sold · ${cal.n_open || 0} open${cal.ready ? ` · cal ×${cal.factor}` : ''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 18px 14px">
+        ${[
+          { lbl: 'MAE', val: cal.mae_pct != null ? `${cal.mae_pct}%` : '—', tip: fr ? 'Erreur abs. médiane vs prévision' : 'Median abs error vs forecast' },
+          { lbl: 'BIAS', val: cal.bias_pct != null ? `${cal.bias_pct > 0 ? '+' : ''}${cal.bias_pct}%` : '—', tip: fr ? 'Sur/sous-prédiction revente' : 'Over/under-predict resale' },
+          { lbl: 'WIN', val: cal.win_rate != null ? `${cal.win_rate}%` : '—', tip: fr ? 'Trades rentables' : 'Profitable trades' },
+          { lbl: fr ? 'SOUS MAX BUY' : 'UNDER MAX', val: cal.under_max_buy_rate != null ? `${cal.under_max_buy_rate}%` : '—', tip: fr ? 'Achats ≤ Max Buy' : 'Buys ≤ Max Buy' },
+        ].map(k => `
+          <div style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:10px 12px" title="${esc(k.tip)}">
+            <div style="font-family:var(--font-mono);font-size:8px;color:var(--t4);letter-spacing:.08em">${k.lbl}</div>
+            <div style="font-family:var(--font-head);font-size:18px;font-weight:800;margin-top:4px">${k.val}</div>
+          </div>`).join('')}
+      </div>
+      ${!cal.ready ? `
+        <div style="padding:0 18px 14px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+          ${fr
+            ? 'Log ≥ 3 ventes (payé → listé → vendu) pour activer la calibration auto des prévisions.'
+            : 'Log ≥ 3 sold trades (paid → listed → sold) to enable auto forecast calibration.'}
+        </div>` : `
+        <div style="padding:0 18px 14px;font-size:10px;color:var(--t3);font-family:var(--font-mono)">
+          ${fr
+            ? `Calibration active (×${cal.factor}) — les bandes revente tiennent compte de ton biais historique.`
+            : `Calibration live (×${cal.factor}) — resale bands adjusted from your historical bias.`}
+        </div>`}
+      ${(openOutcomes.length || soldOutcomes.length) ? `
+        <div style="border-top:1px solid var(--b3)">
+          ${openOutcomes.slice(0, 8).map(outcomeRow).join('')}
+          ${soldOutcomes.slice(0, 6).map(outcomeRow).join('')}
+        </div>` : `
+        <div style="padding:4px 18px 16px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+          ${fr ? 'Aucun trade loggé — clique « Log trade » sur une opportunité Buy.' : 'No trades yet — click “Log trade” on a Buy opportunity.'}
+        </div>`}
+    </div>
 
     ${j1.length ? `
     <div class="card" style="margin-bottom:14px">
@@ -3773,6 +3864,117 @@ async function renderPresaleTracker(c) {
     </div>`;
 }
 
+async function logPresaleOutcome(oppId) {
+  const fr = S.lang === 'fr';
+  const o = (window.__presaleOpps || {})[oppId];
+  if (!o) return toast(fr ? 'Opportunité introuvable' : 'Opportunity not found', '⚠');
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return toast(fr ? 'Backend manquant' : 'Backend missing', '⚠');
+
+  const suggested = o.max_buy?.max_buy_face || o.forecast?.face_est || '';
+  const paidStr = prompt(fr ? `Prix payé face (€) — Max Buy ${suggested || '—'}€` : `Paid face (€) — Max Buy ${suggested || '—'}€`, String(suggested || ''));
+  if (paidStr == null) return;
+  const paid = Number(paidStr);
+  if (!(paid > 0)) return toast(fr ? 'Prix invalide' : 'Invalid price', '⚠');
+
+  const cat = prompt(fr ? 'Catégorie (GA / Catégorie 1 / VIP)' : 'Category (GA / Cat 1 / VIP)', 'GA / Fosse') || 'GA / Fosse';
+  const qty = Math.max(1, Math.min(20, Number(prompt(fr ? 'Quantité' : 'Qty', '1')) || 1));
+
+  try {
+    const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+    const res = await fetch(new URL('api/presales/outcomes', base).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        opp_id: o.id,
+        tm_id: o.tm_id,
+        name: o.name,
+        artist: o.artist,
+        venue: o.venue,
+        city: o.city,
+        country: o.country,
+        date: o.date,
+        url: o.url,
+        category: cat,
+        sale_name: o.sale_name,
+        recommended_max_buy: o.max_buy?.max_buy_face,
+        forecast_face_est: o.forecast?.face_est,
+        forecast_resale_conservative: o.forecast?.resale_conservative,
+        forecast_resale_median: o.forecast?.resale_median,
+        forecast_resale_optimistic: o.forecast?.resale_optimistic,
+        decision: o.decision,
+        confidence: o.confidence,
+        demand_score: o.demand_score,
+        opportunity_score: o.opportunity_score,
+        comps_priced: o.forecast?.comps_priced,
+        paid_face: paid,
+        qty,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(fr ? 'Trade loggé ✓' : 'Trade logged ✓', '✓');
+    render();
+  } catch (e) {
+    toast((fr ? 'Erreur log: ' : 'Log error: ') + (e.message || e), '⚠');
+  }
+}
+
+async function markPresaleListed(id) {
+  const fr = S.lang === 'fr';
+  const price = Number(prompt(fr ? 'Prix listé (€)' : 'Listed price (€)', ''));
+  if (!(price > 0)) return;
+  await patchPresaleOutcome(id, { listed_price: price, status: 'listed' });
+}
+
+async function markPresaleSold(id) {
+  const fr = S.lang === 'fr';
+  const price = Number(prompt(fr ? 'Prix de vente (€)' : 'Sold price (€)', ''));
+  if (!(price > 0)) return;
+  const feeStr = prompt(fr ? 'Frais vente % (défaut 15)' : 'Sell fee % (default 15)', '15');
+  const sell_fee_pct = feeStr != null && feeStr !== '' ? Number(feeStr) / 100 : 0.15;
+  await patchPresaleOutcome(id, { sold_price: price, sell_fee_pct, status: 'sold' });
+}
+
+async function deletePresaleOutcome(id) {
+  const fr = S.lang === 'fr';
+  if (!confirm(fr ? 'Supprimer ce trade ?' : 'Delete this trade?')) return;
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return;
+  try {
+    const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+    const url = new URL(`api/presales/outcomes/${encodeURIComponent(id)}`, base);
+    const res = await fetch(url.toString(), { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(fr ? 'Supprimé' : 'Deleted', '✓');
+    render();
+  } catch (e) {
+    toast(e.message || 'error', '⚠');
+  }
+}
+
+async function patchPresaleOutcome(id, body) {
+  const fr = S.lang === 'fr';
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return;
+  try {
+    const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+    const url = new URL(`api/presales/outcomes/${encodeURIComponent(id)}`, base);
+    const res = await fetch(url.toString(), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(fr ? 'Mis à jour ✓' : 'Updated ✓', '✓');
+    render();
+  } catch (e) {
+    toast(e.message || 'error', '⚠');
+  }
+}
+
 /* ── Expose functions globally for onclick handlers ── */
 
 window.nav              = nav;
@@ -3815,6 +4017,10 @@ window.buildMobileCards = buildMobileCards;
 window.checkCountdownAlerts = checkCountdownAlerts;
 window.renderAIPredictor    = renderAIPredictor;
 window.renderPresaleTracker = renderPresaleTracker;
+window.logPresaleOutcome = logPresaleOutcome;
+window.markPresaleListed = markPresaleListed;
+window.markPresaleSold = markPresaleSold;
+window.deletePresaleOutcome = deletePresaleOutcome;
 window.sendPresaleAlerts    = sendPresaleAlerts;
 window.showAuthModal  = showAuthModal;
 window.hideAuthModal  = hideAuthModal;
