@@ -3564,120 +3564,169 @@ async function sendPresaleAlerts(events) {
   return 0;
 }
 
-function renderPresaleTracker(c) {
+async function renderPresaleTracker(c) {
   const fr = S.lang === 'fr';
   const PRESALE_SOURCES = getPresaleSources();
-  const evs = allEvs();
-
-  // Events with presale info
-  const withPresale = evs.filter(e => e.presale_date || e.presale).map(e => ({
-    ...e,
-    _ps: getPresaleStatus(e)
-  })).sort((a, b) => {
-    const da = a._ps?.days ?? 999;
-    const db = b._ps?.days ?? 999;
-    return da - db;
-  });
-
-  // Upcoming presales (next 30 days)
-  const upcoming = withPresale.filter(e => e._ps && e._ps.days >= 0 && e._ps.days <= 30);
-  const past     = withPresale.filter(e => e._ps && e._ps.days < 0);
-  const noDate   = evs.filter(e => !e.presale_date && !e.presale);
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  const esc = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const safeHttpUrl = (u) => {
+    try {
+      const parsed = new URL(String(u || ''));
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.toString();
+    } catch (_) {}
+    return '';
+  };
 
   c.innerHTML = `
-    <!-- Header stats -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    <div class="card" style="padding:28px;text-align:center">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--t3)">🔑 ${fr ? 'Chargement Presale Intelligence…' : 'Loading Presale Intelligence…'}</div>
+    </div>`;
+
+  let intel = null;
+  let intelErr = null;
+  if (backendUrl) {
+    try {
+      const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+      const url = new URL('api/presales', base);
+      url.searchParams.set('days', '30');
+      const res = await fetch(url.toString());
+      intel = await res.json();
+      if (!res.ok || intel?.ok === false) intelErr = intel?.error || `HTTP ${res.status}`;
+    } catch (e) {
+      intelErr = e.message || 'network';
+    }
+  } else {
+    intelErr = fr ? 'Backend non configuré' : 'Backend not configured';
+  }
+
+  const top10 = intel?.top10 || [];
+  const j1 = intel?.j1 || [];
+  const summary = intel?.summary || { buy: 0, watch: 0, avoid: 0, new: 0, j1: 0 };
+  const total = intel?.total || 0;
+
+  const decisionStyle = (d) => {
+    if (d === 'Buy') return { col: 'var(--green)', bg: 'rgba(45,212,160,.12)', label: 'Buy' };
+    if (d === 'Watch') return { col: 'var(--gold2)', bg: 'rgba(212,168,67,.12)', label: 'Watch' };
+    return { col: 'var(--red)', bg: 'rgba(255,94,94,.12)', label: 'Avoid' };
+  };
+
+  const rowHtml = (o) => {
+    const ds = decisionStyle(o.decision);
+    const risk = (o.risk?.flags || []).map(f => f.label).slice(0, 2).join(' · ');
+    const when = o.days_to_sale === 0 ? (fr ? "Aujourd'hui" : 'Today')
+      : o.days_to_sale === 1 ? (fr ? 'Demain' : 'Tomorrow')
+      : `J-${o.days_to_sale}`;
+    const saleLabel = o.sale_name || o.sale_type || 'sale';
+    const href = safeHttpUrl(o.url);
+    return `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b3)">
+        <div style="width:46px;height:46px;border-radius:var(--r8);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;background:${ds.bg};border:1px solid ${ds.col}40">
+          <div style="font-family:var(--font-head);font-size:15px;font-weight:800;color:${ds.col}">${esc(o.opportunity_score ?? '—')}</div>
+          <div style="font-family:var(--font-mono);font-size:7px;color:var(--t4)">OPP</div>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+            <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${esc(o.name || '—')}</span>
+            <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ds.bg};color:${ds.col};border:1px solid ${ds.col}40">${esc(ds.label)}</span>
+            ${o.is_new ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--t2)">NEW</span>` : ''}
+            ${o.risk?.blocked ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:rgba(255,94,94,.15);color:var(--red)">RISK</span>` : ''}
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
+            <span>🔑 ${esc(saleLabel)}</span>
+            <span>⏱ ${esc(when)}</span>
+            <span>📍 ${esc([o.city, o.country].filter(Boolean).join(', ') || '—')}</span>
+            <span>Demand ${esc(o.demand_score ?? '—')}</span>
+            <span>Resale ${esc(o.resale_score ?? '—')}</span>
+            ${o.face ? `<span>~${esc(o.face)}€</span>` : ''}
+          </div>
+          ${risk ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">⚠ ${esc(risk)}</div>` : ''}
+          ${o.decision_reason ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${esc(o.decision_reason)}</div>` : ''}
+        </div>
+        ${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"
+          style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);text-decoration:none;font-family:var(--font-mono);flex-shrink:0">TM →</a>` : ''}
+      </div>`;
+  };
+
+  // Sheet-based fallback section (legacy)
+  const evs = allEvs();
+  const withPresale = evs.filter(e => e.presale_date || e.presale).map(e => ({
+    ...e, _ps: getPresaleStatus(e)
+  })).sort((a, b) => (a._ps?.days ?? 999) - (b._ps?.days ?? 999));
+  const upcomingSheet = withPresale.filter(e => e._ps && e._ps.days >= 0 && e._ps.days <= 30);
+
+  c.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
       ${[
-        { lbl: fr?'PRESALES À VENIR':'UPCOMING', val: upcoming.length, col: 'var(--green)', icon: '🔑' },
-        { lbl: fr?'DANS LES 3 JOURS':'IN 3 DAYS', val: upcoming.filter(e=>e._ps.days<=3).length, col: 'var(--red)', icon: '🚨' },
-        { lbl: fr?'CETTE SEMAINE':'THIS WEEK', val: upcoming.filter(e=>e._ps.days<=7).length, col: 'var(--gold2)', icon: '⚡' },
-        { lbl: fr?'SANS DATE':'NO DATE', val: noDate.length, col: 'var(--t3)', icon: '❓' },
+        { lbl: fr ? 'FENÊTRE 30J' : '30D WINDOW', val: total, col: 'var(--t1)', icon: '🔑' },
+        { lbl: 'BUY', val: summary.buy || 0, col: 'var(--green)', icon: '✅' },
+        { lbl: 'WATCH', val: summary.watch || 0, col: 'var(--gold2)', icon: '👀' },
+        { lbl: 'AVOID', val: summary.avoid || 0, col: 'var(--red)', icon: '⛔' },
+        { lbl: 'J-0 / J-1', val: summary.j1 || j1.length, col: 'var(--red)', icon: '🚨' },
       ].map(k => `
         <div style="background:var(--bg2);border:1px solid var(--b3);border-radius:var(--r12);padding:14px;position:relative;overflow:hidden">
           <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${k.col},transparent)"></div>
           <div style="font-family:var(--font-mono);font-size:8.5px;color:var(--t3);letter-spacing:.1em;margin-bottom:8px">${k.lbl}</div>
-          <div style="font-family:var(--font-head);font-size:28px;font-weight:800;color:${k.col}">${k.val}</div>
-          <div style="font-size:16px;position:absolute;top:12px;right:14px;opacity:.3">${k.icon}</div>
+          <div style="font-family:var(--font-head);font-size:26px;font-weight:800;color:${k.col}">${k.val}</div>
+          <div style="font-size:14px;position:absolute;top:12px;right:14px;opacity:.3">${k.icon}</div>
         </div>`).join('')}
     </div>
 
-    <!-- Presale sources legend -->
+    ${intelErr ? `
+      <div class="card" style="margin-bottom:14px;padding:14px 18px;border-color:var(--red)">
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--red)">⚠ ${fr ? 'Presale API' : 'Presale API'}: ${esc(intelErr)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--t4);margin-top:4px">${fr ? 'Vérifie le backend + TICKETMASTER_API_KEY sur Render.' : 'Check backend + TICKETMASTER_API_KEY on Render.'}</div>
+      </div>` : ''}
+
+    ${j1.length ? `
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
-        <span class="card-title">🔑 ${fr?'Sources de presale':'Presale sources'}</span>
+        <span class="card-title">🚨 ${fr ? 'Ventes J-0 / J-1' : 'Sales J-0 / J-1'}</span>
+        <span class="card-meta">${j1.length}</span>
+      </div>
+      ${j1.slice(0, 8).map(rowHtml).join('')}
+    </div>` : ''}
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🏆 ${fr ? 'Top 10 opportunités' : 'Top 10 opportunities'}</span>
+        <span class="card-meta">${top10.length} · ${fr ? 'Demand + Risk Gate' : 'Demand + Risk Gate'}</span>
+      </div>
+      ${top10.length === 0 ? `
+        <div class="empty">
+          <div class="empty-icon">🔑</div>
+          <div class="empty-txt">${fr ? 'Aucune vente TM dans la fenêtre — réessaie plus tard' : 'No TM sales in window — try again later'}</div>
+        </div>` : top10.map(rowHtml).join('')}
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🔑 ${fr ? 'Sources Sheet (manuel)' : 'Sheet sources (manual)'}</span>
+        <span class="card-meta">${upcomingSheet.length}</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 18px">
         ${Object.entries(PRESALE_SOURCES).map(([k, v]) => `
-          <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--b3);border-radius:20px;padding:4px 12px;cursor:default" title="${v.tip}">
+          <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--b3);border-radius:20px;padding:4px 12px" title="${v.tip}">
             <span>${v.icon}</span>
             <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--t2)">${k}</span>
           </div>`).join('')}
       </div>
-      <div style="padding:8px 18px 12px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
-        ${fr?'Ajoute une colonne "presale_date" (YYYY-MM-DD) et "presale_code" dans ton Google Sheet':'Add "presale_date" (YYYY-MM-DD) and "presale_code" columns to your Google Sheet'}
-      </div>
-    </div>
-
-    <!-- Upcoming presales -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-head">
-        <span class="card-title">⏰ ${fr?'Presales à venir':'Upcoming presales'}</span>
-        <span class="card-meta">${upcoming.length} ${fr?'events':'events'}</span>
-      </div>
-      ${upcoming.length === 0 ? `
-        <div class="empty">
-          <div class="empty-icon">🔑</div>
-          <div class="empty-txt">${fr?"Ajoute une colonne 'presale_date' dans ton Sheet":"Add a 'presale_date' column to your Sheet"}</div>
+      ${upcomingSheet.length === 0 ? `
+        <div style="padding:8px 18px 14px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+          ${fr ? 'Optionnel : colonne presale_date dans le Sheet' : 'Optional: presale_date column in Sheet'}
         </div>` :
-        upcoming.map(ev => {
+        upcomingSheet.slice(0, 6).map(ev => {
           const ps = ev._ps;
-          const src = PRESALE_SOURCES[ev.presale_code] || { icon: '🔑', label: ev.presale_code || '—', tip: '' };
           return `
-          <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b3)">
-            <div style="width:42px;height:42px;border-radius:var(--r8);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:${ps.color}15;border:1px solid ${ps.color}40">
-              ${ps.icon}
-            </div>
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
-                <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${ev.flag||'🎫'} ${ev.name}</span>
-                <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ps.color}15;color:${ps.color};border:1px solid ${ps.color}40">${ps.status}</span>
-              </div>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
-                <span>📅 ${ev.presale_date || ev.presale}</span>
-                <span>${src.icon} ${src.label}</span>
-                <span>💰 +${ev.marge}%</span>
-                <span>${ev.face}€ → ${ev.resale}€</span>
-              </div>
-              ${src.tip ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">💡 ${src.tip}</div>` : ''}
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-              <button onclick="openPlatform(${ev.id})"
-                style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
-                🛒 ${fr?'Acheter':'Buy'}
-              </button>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--b3)">
+            <span style="font-size:16px">${ps.icon}</span>
+            <div style="flex:1">
+              <div style="font-family:var(--font-head);font-size:12.5px;font-weight:600">${ev.name}</div>
+              <div style="font-family:var(--font-mono);font-size:9.5px;color:var(--t3)">${ev.presale_date || ev.presale} · ${ps.status}</div>
             </div>
           </div>`;
         }).join('')}
-    </div>
-
-    <!-- Events sans date presale -->
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">❓ ${fr?'Sans date presale':'No presale date'}</span>
-        <span class="card-meta">${noDate.length} ${fr?'events à surveiller':'events to watch'}</span>
-      </div>
-      <div style="padding:10px 18px;font-size:11px;color:var(--t3);font-family:var(--font-mono);border-bottom:1px solid var(--b3)">
-        ${fr?'Ajoute presale_date + presale_code dans ton Sheet pour ces events':'Add presale_date + presale_code to your Sheet for these events'}
-      </div>
-      ${noDate.slice(0,8).map(ev => `
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--b3)">
-          <span style="font-size:16px">${ev.flag||'🎫'}</span>
-          <div style="flex:1">
-            <div style="font-family:var(--font-head);font-size:12.5px;font-weight:600">${ev.name}</div>
-            <div style="font-family:var(--font-mono);font-size:9.5px;color:var(--t3)">${ev.date||'—'} · +${ev.marge}%</div>
-          </div>
-          <span style="font-family:var(--font-mono);font-size:9px;color:var(--t4);background:var(--bg3);padding:2px 8px;border-radius:4px">Pas de presale_date</span>
-        </div>`).join('')}
     </div>`;
 }
 
