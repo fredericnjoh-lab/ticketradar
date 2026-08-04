@@ -3621,33 +3621,74 @@ async function renderPresaleTracker(c) {
     const saleLabel = o.sale_name || o.sale_type || 'sale';
     const alts = (o.alt_channels || []).map(a => a.sale_name).filter(Boolean).slice(0, 3);
     const href = safeHttpUrl(o.url);
+    const mb = o.max_buy?.max_buy_face;
+    const fc = o.forecast;
+    const band = fc
+      ? `${fc.resale_conservative}–${fc.resale_optimistic}€`
+      : '';
+    const cats = (o.categories || []).slice(0, 3);
+    const comps = (o.comps || []).slice(0, 2);
     return `
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b3)">
-        <div style="width:46px;height:46px;border-radius:var(--r8);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;background:${ds.bg};border:1px solid ${ds.col}40">
-          <div style="font-family:var(--font-head);font-size:15px;font-weight:800;color:${ds.col}">${esc(o.opportunity_score ?? '—')}</div>
-          <div style="font-family:var(--font-mono);font-size:7px;color:var(--t4)">OPP</div>
-        </div>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
-            <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${esc(o.name || '—')}</span>
-            <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ds.bg};color:${ds.col};border:1px solid ${ds.col}40">${esc(ds.label)}</span>
-            ${o.is_new ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--t2)">NEW</span>` : ''}
-            ${o.risk?.blocked ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:rgba(255,94,94,.15);color:var(--red)">RISK</span>` : ''}
+      <div style="padding:12px 18px;border-bottom:1px solid var(--b3)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:46px;height:46px;border-radius:var(--r8);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;background:${ds.bg};border:1px solid ${ds.col}40">
+            <div style="font-family:var(--font-head);font-size:15px;font-weight:800;color:${ds.col}">${esc(o.opportunity_score ?? '—')}</div>
+            <div style="font-family:var(--font-mono);font-size:7px;color:var(--t4)">OPP</div>
           </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
-            <span>🔑 ${esc(saleLabel)}</span>
-            <span>⏱ ${esc(when)}</span>
-            <span>📍 ${esc([o.city, o.country].filter(Boolean).join(', ') || '—')}</span>
-            <span>Demand ${esc(o.demand_score ?? '—')}</span>
-            <span>Resale ${esc(o.resale_score ?? '—')}</span>
-            ${o.face ? `<span>~${esc(o.face)}€</span>` : ''}
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+              <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${esc(o.name || '—')}</span>
+              <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ds.bg};color:${ds.col};border:1px solid ${ds.col}40">${esc(ds.label)}</span>
+              ${o.is_new ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--t2)">NEW</span>` : ''}
+              ${o.risk?.blocked ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:rgba(255,94,94,.15);color:var(--red)">RISK</span>` : ''}
+              ${o.confidence != null ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--t3)">conf ${esc(o.confidence)}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
+              <span>🔑 ${esc(saleLabel)}</span>
+              <span>⏱ ${esc(when)}</span>
+              <span>📍 ${esc([o.city, o.country].filter(Boolean).join(', ') || '—')}</span>
+              <span>Demand ${esc(o.demand_score ?? '—')}</span>
+              <span>Resale ${esc(o.resale_score ?? '—')}</span>
+              ${mb ? `<span style="color:var(--gold2)">Max Buy ${esc(mb)}€</span>` : ''}
+              ${band ? `<span>Revente ${esc(band)}</span>` : ''}
+              ${o.face ? `<span>Face ${esc(o.face)}€</span>` : (fc?.face_est ? `<span>Face ~${esc(fc.face_est)}€</span>` : '')}
+            </div>
+            ${alts.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">+ ${esc(alts.join(' · '))}</div>` : ''}
+            ${comps.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">📊 ${esc(comps.map(c => `${c.city || c.country || '—'} ${c.face}→${c.resale}€ (${c.match})`).join(' · '))}</div>` : ''}
+            ${risk ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">⚠ ${esc(risk)}</div>` : ''}
+            ${o.decision_reason ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${esc(o.decision_reason)}</div>` : ''}
           </div>
-          ${alts.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">+ ${esc(alts.join(' · '))}</div>` : ''}
-          ${risk ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">⚠ ${esc(risk)}</div>` : ''}
-          ${o.decision_reason ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${esc(o.decision_reason)}</div>` : ''}
+          ${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"
+            style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);text-decoration:none;font-family:var(--font-mono);flex-shrink:0">TM →</a>` : ''}
         </div>
-        ${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"
-          style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);text-decoration:none;font-family:var(--font-mono);flex-shrink:0">TM →</a>` : ''}
+        ${cats.length ? `
+        <div style="margin-top:10px;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">
+            <thead>
+              <tr style="color:var(--t4);text-align:left">
+                <th style="padding:4px 6px;font-weight:500">${fr ? 'Catégorie' : 'Category'}</th>
+                <th style="padding:4px 6px;font-weight:500">Face</th>
+                <th style="padding:4px 6px;font-weight:500">Max Buy</th>
+                <th style="padding:4px 6px;font-weight:500">${fr ? 'Revente' : 'Resale'}</th>
+                <th style="padding:4px 6px;font-weight:500">ROI</th>
+                <th style="padding:4px 6px;font-weight:500"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${cats.map(c => {
+                const col = c.decision === 'Acheter' ? 'var(--green)' : c.decision === 'Limite' ? 'var(--gold2)' : 'var(--red)';
+                return `<tr style="border-top:1px solid var(--b3)">
+                  <td style="padding:5px 6px;color:var(--t2)">${esc(c.category)}</td>
+                  <td style="padding:5px 6px">${esc(c.face)}€</td>
+                  <td style="padding:5px 6px;color:var(--gold2)">${esc(c.max_buy)}€</td>
+                  <td style="padding:5px 6px">${esc(c.resale_conservative)}€</td>
+                  <td style="padding:5px 6px">${esc(c.roi_net_pct)}%</td>
+                  <td style="padding:5px 6px;color:${col};font-weight:700">${esc(c.decision)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
       </div>`;
   };
 
@@ -3665,7 +3706,7 @@ async function renderPresaleTracker(c) {
         { lbl: 'BUY', val: summary.buy || 0, col: 'var(--green)', icon: '✅' },
         { lbl: 'WATCH', val: summary.watch || 0, col: 'var(--gold2)', icon: '👀' },
         { lbl: 'AVOID', val: summary.avoid || 0, col: 'var(--red)', icon: '⛔' },
-        { lbl: 'J-0 / J-1', val: summary.j1 || j1.length, col: 'var(--red)', icon: '🚨' },
+        { lbl: fr ? 'CONF MOY.' : 'AVG CONF', val: summary.avg_confidence ?? '—', col: 'var(--t2)', icon: '📊' },
       ].map(k => `
         <div style="background:var(--bg2);border:1px solid var(--b3);border-radius:var(--r12);padding:14px;position:relative;overflow:hidden">
           <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${k.col},transparent)"></div>
@@ -3693,7 +3734,7 @@ async function renderPresaleTracker(c) {
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
         <span class="card-title">🏆 ${fr ? 'Top 10 opportunités' : 'Top 10 opportunities'}</span>
-        <span class="card-meta">${top10.length} · ${fr ? 'Demand + Risk Gate' : 'Demand + Risk Gate'}</span>
+        <span class="card-meta">${top10.length} · Max Buy · comps</span>
       </div>
       ${top10.length === 0 ? `
         <div class="empty">
