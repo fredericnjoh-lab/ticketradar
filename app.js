@@ -3619,6 +3619,7 @@ async function renderPresaleTracker(c) {
       : o.days_to_sale === 1 ? (fr ? 'Demain' : 'Tomorrow')
       : `J-${o.days_to_sale}`;
     const saleLabel = o.sale_name || o.sale_type || 'sale';
+    const alts = (o.alt_channels || []).map(a => a.sale_name).filter(Boolean).slice(0, 3);
     const href = safeHttpUrl(o.url);
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b3)">
@@ -3641,6 +3642,7 @@ async function renderPresaleTracker(c) {
             <span>Resale ${esc(o.resale_score ?? '—')}</span>
             ${o.face ? `<span>~${esc(o.face)}€</span>` : ''}
           </div>
+          ${alts.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">+ ${esc(alts.join(' · '))}</div>` : ''}
           ${risk ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">⚠ ${esc(risk)}</div>` : ''}
           ${o.decision_reason ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${esc(o.decision_reason)}</div>` : ''}
         </div>
