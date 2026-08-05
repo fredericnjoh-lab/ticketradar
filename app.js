@@ -3592,13 +3592,18 @@ async function renderPresaleTracker(c) {
       const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
       const url = new URL('api/presales', base);
       url.searchParams.set('days', '30');
+      const authH = await backendAuthHeaders();
       const [resIntel, resOut] = await Promise.all([
         fetch(url.toString()),
-        fetch(new URL('api/presales/outcomes', base).toString()).catch(() => null),
+        fetch(new URL('api/presales/outcomes', base).toString(), { headers: authH }).catch(() => null),
       ]);
       intel = await resIntel.json();
       if (!resIntel.ok || intel?.ok === false) intelErr = intel?.error || `HTTP ${resIntel.status}`;
-      if (resOut && resOut.ok) outcomesPayload = await resOut.json();
+      if (resOut && resOut.ok) {
+        outcomesPayload = await resOut.json();
+      } else if (resOut && resOut.status === 401) {
+        outcomesPayload = { ok: false, outcomes: [], auth_required: true };
+      }
     } catch (e) {
       intelErr = e.message || 'network';
     }
@@ -3663,7 +3668,11 @@ async function renderPresaleTracker(c) {
               <span>Resale ${esc(o.resale_score ?? '—')}</span>
               ${mb ? `<span style="color:var(--gold2)">Max Buy ${esc(mb)}€</span>` : ''}
               ${band ? `<span>Revente ${esc(band)}</span>` : ''}
-              ${o.face ? `<span>Face ${esc(o.face)}€</span>` : (fc?.face_est ? `<span>Face ~${esc(fc.face_est)}€</span>` : '')}
+              ${o.face && (o.face_source === 'ticketmaster' || o.face_source === 'cache')
+                ? `<span style="color:var(--green)">Face ${esc(o.face)}€ <span style="opacity:.7">TM</span></span>`
+                : o.face
+                  ? `<span>Face ${esc(o.face)}€</span>`
+                  : (fc?.face_est ? `<span>Face ~${esc(fc.face_est)}€</span>` : '')}
             </div>
             ${alts.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">+ ${esc(alts.join(' · '))}</div>` : ''}
             ${comps.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">📊 ${esc(comps.map(c => `${c.city || c.country || '—'} ${c.face}→${c.resale}€ (${c.match})`).join(' · '))}</div>` : ''}
@@ -3760,6 +3769,7 @@ async function renderPresaleTracker(c) {
         { lbl: 'WATCH', val: summary.watch || 0, col: 'var(--gold2)', icon: '👀' },
         { lbl: 'AVOID', val: summary.avoid || 0, col: 'var(--red)', icon: '⛔' },
         { lbl: fr ? 'CONF MOY.' : 'AVG CONF', val: summary.avg_confidence ?? '—', col: 'var(--t2)', icon: '📊' },
+        { lbl: fr ? 'FACE TM' : 'TM FACE', val: summary.with_real_face ?? 0, col: 'var(--green)', icon: '💶' },
       ].map(k => `
         <div style="background:var(--bg2);border:1px solid var(--b3);border-radius:var(--r12);padding:14px;position:relative;overflow:hidden">
           <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${k.col},transparent)"></div>
@@ -3809,7 +3819,9 @@ async function renderPresaleTracker(c) {
           ${soldOutcomes.slice(0, 6).map(outcomeRow).join('')}
         </div>` : `
         <div style="padding:4px 18px 16px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
-          ${fr ? 'Aucun trade loggé — clique « Log trade » sur une opportunité Buy.' : 'No trades yet — click “Log trade” on a Buy opportunity.'}
+          ${outcomesPayload?.auth_required
+            ? (fr ? 'Connecte-toi pour voir et logger tes trades (multi-user).' : 'Sign in to view and log your trades (multi-user).')
+            : (fr ? 'Aucun trade loggé — clique « Log trade » sur une opportunité Buy.' : 'No trades yet — click “Log trade” on a Buy opportunity.')}
         </div>`}
     </div>
 
@@ -3871,8 +3883,15 @@ async function logPresaleOutcome(oppId) {
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) return toast(fr ? 'Backend manquant' : 'Backend missing', '⚠');
 
-  const suggested = o.max_buy?.max_buy_face || o.forecast?.face_est || '';
-  const paidStr = prompt(fr ? `Prix payé face (€) — Max Buy ${suggested || '—'}€` : `Paid face (€) — Max Buy ${suggested || '—'}€`, String(suggested || ''));
+  const authH = await backendAuthHeaders();
+  if (!authH.Authorization) {
+    return toast(fr ? 'Connecte-toi pour logger un trade' : 'Sign in to log a trade', '⚠');
+  }
+
+  const faceHint = o.face && (o.face_source === 'ticketmaster' || o.face_source === 'cache')
+    ? o.face
+    : (o.max_buy?.max_buy_face || o.forecast?.face_est || '');
+  const paidStr = prompt(fr ? `Prix payé face (€) — Max Buy / Face ${faceHint || '—'}€` : `Paid face (€) — Max Buy / Face ${faceHint || '—'}€`, String(faceHint || ''));
   if (paidStr == null) return;
   const paid = Number(paidStr);
   if (!(paid > 0)) return toast(fr ? 'Prix invalide' : 'Invalid price', '⚠');
@@ -3884,7 +3903,7 @@ async function logPresaleOutcome(oppId) {
     const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
     const res = await fetch(new URL('api/presales/outcomes', base).toString(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authH,
       body: JSON.stringify({
         opp_id: o.id,
         tm_id: o.tm_id,
@@ -3911,7 +3930,8 @@ async function logPresaleOutcome(oppId) {
         qty,
       }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error(fr ? 'Connecte-toi pour logger un trade' : 'Sign in to log a trade');
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
     toast(fr ? 'Trade loggé ✓' : 'Trade logged ✓', '✓');
     render();
@@ -3944,8 +3964,10 @@ async function deletePresaleOutcome(id) {
   try {
     const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
     const url = new URL(`api/presales/outcomes/${encodeURIComponent(id)}`, base);
-    const res = await fetch(url.toString(), { method: 'DELETE' });
-    const data = await res.json();
+    const authH = await backendAuthHeaders();
+    if (!authH.Authorization) return toast(fr ? 'Connecte-toi' : 'Sign in', '⚠');
+    const res = await fetch(url.toString(), { method: 'DELETE', headers: authH });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
     toast(fr ? 'Supprimé' : 'Deleted', '✓');
     render();
@@ -3961,12 +3983,14 @@ async function patchPresaleOutcome(id, body) {
   try {
     const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
     const url = new URL(`api/presales/outcomes/${encodeURIComponent(id)}`, base);
+    const authH = await backendAuthHeaders();
+    if (!authH.Authorization) return toast(fr ? 'Connecte-toi' : 'Sign in', '⚠');
     const res = await fetch(url.toString(), {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authH,
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
     toast(fr ? 'Mis à jour ✓' : 'Updated ✓', '✓');
     render();
