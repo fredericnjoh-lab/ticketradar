@@ -2709,7 +2709,7 @@ async function submitAuth() {
 
   try {
     if (_authMode === 'signup') {
-      await sbSignUp(email, password);
+      await sbSignUp(email, password, { lang: S.lang === 'en' ? 'en' : 'fr' });
       if (successEl) {
         successEl.textContent = fr
           ? '✓ Compte créé ! Vérifie ton email pour confirmer.'

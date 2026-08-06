@@ -14,8 +14,13 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
    AUTH
 ══════════════════════════════════════════════ */
 
-async function sbSignUp(email, password) {
-  const { data, error } = await sb.auth.signUp({ email, password });
+async function sbSignUp(email, password, { lang } = {}) {
+  const userLang = lang || (typeof S !== 'undefined' && S.lang === 'en' ? 'en' : 'fr');
+  const { data, error } = await sb.auth.signUp({
+    email,
+    password,
+    options: { data: { lang: userLang } },
+  });
   if (error) throw error;
   return data;
 }
