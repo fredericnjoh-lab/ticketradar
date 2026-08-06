@@ -40,7 +40,7 @@ async function fetchLiveFX() {
     console.log('[FX] Taux mis à jour:', FX);
     // Refresh ROI view if active
     if (S.view === 'roi') render();
-  } catch(e) { console.warn('[FX] API indisponible, taux statiques utilisés'); }
+  } catch(e) { console.warn('[FX] API indisponible, taux statiques utilisés'); toast(S.lang==='fr'?'Taux de change statiques (API indisponible)':'Static FX rates (API unavailable)','ℹ'); }
 }
 
 /* ══════════════════════════════════════════════
@@ -95,6 +95,18 @@ function toast(msg, icon='✓') {
   el.innerHTML = '<span>' + (icon||'✓') + '</span> ' + msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+/** En-têtes pour les routes backend protégées (JWT Supabase) */
+async function backendAuthHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.access_token) {
+      h['Authorization'] = 'Bearer ' + session.access_token;
+    }
+  }
+  return h;
 }
 
 function saveState() {
@@ -191,6 +203,7 @@ async function loadSheet() {
           prevResale: resale,
           presale_date: String(row.presale_date || row.presaledate || ''),
           presale_code: String(row.presale_code || row.presalecode || '').toUpperCase(),
+          ...reportFields(row),
           starred: false, custom: false, live: false,
         };
       }).filter(e => e.name && e.face > 0);
@@ -239,6 +252,7 @@ function parseSheetCSV(text) {
       face, resale, marge, score, prevResale:resale,
       presale_date: row.presale_date || row.presaledate || '',
       presale_code: (row.presale_code || row.presalecode || '').toUpperCase(),
+      ...reportFields(row),
       starred:false, custom:false, live:false,
     };
   }).filter(e => e.name && e.face > 0);
@@ -253,6 +267,52 @@ function splitCSV(line) {
   }
   result.push(current);
   return result;
+}
+
+/* ── Champs "Rapport marché secondaire" (scores 4 axes, reco, conformité) ── */
+const COMPLIANCE_FLAGS = {
+  TRANSFERT_BLOQUE: { label:'Transfert bloqué', icon:'🔒', color:'red',  tip:'Transfert désactivé par l\'organisateur — revente impossible' },
+  MOBILE_ID:        { label:'Mobile ID',        icon:'📱', color:'gold', tip:'Billet AXS Mobile ID (code-barres dynamique) — vérifier si transférable' },
+  REVENTE_INTERDITE:{ label:'Revente interdite',icon:'⛔', color:'red',  tip:'Revente interdite par les CGV — annulation sans remboursement possible' },
+  FANCLUB_LOCK:     { label:'Prévente verrouillée', icon:'🎫', color:'gold', tip:'Billet de prévente fan club — souvent non transférable' },
+  JURIDICTION:      { label:'Juridiction',      icon:'⚖️', color:'red',  tip:'Restriction légale locale (plafond de prix, autorisation requise)' },
+  VERIF_ID:         { label:'Vérif. identité',  icon:'🪪', color:'gold', tip:'Contrôle d\'identité possible à l\'entrée' },
+};
+
+function reportFields(row) {
+  const clamp10 = v => { const n = parseFloat(v); return isNaN(n) ? 0 : Math.min(Math.max(n,0),10); };
+  let flags = row.flags || [];
+  if (typeof flags === 'string') flags = flags.split(/[;,|]/).map(f=>f.trim().toUpperCase()).filter(Boolean);
+  flags = flags.filter(f => COMPLIANCE_FLAGS[f]);
+  let reco = String(row.reco || row.recommandation || '').toUpperCase().replace('É','E');
+  if (!['ACHETER','SURVEILLER','EVITER'].includes(reco)) reco = '';
+  return {
+    demande: clamp10(row.demande), rarete: clamp10(row.rarete),
+    liquidite: clamp10(row.liquidite), risque: clamp10(row.risque),
+    reco, flags,
+  };
+}
+
+function recoBadge(e) {
+  if (!e.reco) return '';
+  const map = { ACHETER:['var(--green)','rgba(45,212,160,.10)','rgba(45,212,160,.25)'], SURVEILLER:['var(--gold2)','rgba(212,168,67,.10)','rgba(212,168,67,.25)'], EVITER:['var(--red)','rgba(255,94,94,.10)','rgba(255,94,94,.25)'] };
+  const [col,bg,bdr] = map[e.reco] || map.SURVEILLER;
+  const lbl = e.reco === 'EVITER' ? 'ÉVITER' : e.reco;
+  return `<span style="display:inline-flex;align-items:center;font-size:8px;font-weight:700;font-family:var(--font-mono);padding:1px 6px;border-radius:3px;background:${bg};color:${col};border:1px solid ${bdr};margin-left:4px">${lbl}</span>`;
+}
+
+function flagBadges(e) {
+  return (e.flags||[]).map(f => {
+    const fl = COMPLIANCE_FLAGS[f]; if (!fl) return '';
+    const col = fl.color === 'red' ? 'var(--red)' : 'var(--gold2)';
+    const bdr = fl.color === 'red' ? 'rgba(255,94,94,.25)' : 'rgba(212,168,67,.25)';
+    return `<span title="${fl.tip}" style="display:inline-flex;align-items:center;font-size:8px;font-family:var(--font-mono);padding:1px 5px;border-radius:3px;color:${col};border:1px solid ${bdr};margin-left:3px;cursor:help">${fl.icon} ${fl.label}</span>`;
+  }).join('');
+}
+
+function axesTooltip(e) {
+  if (!e.demande && !e.rarete && !e.liquidite && !e.risque) return '';
+  return `Demande ${e.demande}/10 · Rareté ${e.rarete}/10 · Liquidité ${e.liquidite}/10 · Risque ${e.risque}/10`;
 }
 
 function updateDataSourceInfo(status, count=0, error='') {
@@ -290,7 +350,7 @@ async function scanLiveData(query = '', seuil = 0) {
       seuil:  seuil || S.seuil || 0,
       limit:  50,
       source: 'all',
-      sheet:  'false', // on gère le sheet côté frontend
+      sheet:  'true', // include sheet for Last.fm enrichment
     });
     if (query) params.set('q', query);
 
@@ -327,6 +387,9 @@ async function scanLiveData(query = '', seuil = 0) {
         match.marge  = match.face > 0 ? Math.round(((net - match.face) / match.face) * 100) : 0;
         match.live   = true;
         match.source = live.source;
+        // Spotify enrichment from backend
+        if (live.spotify_popularity) match.spotify_popularity = live.spotify_popularity;
+        if (live.spotify_followers)  match.spotify_followers  = live.spotify_followers;
         updated++;
       } else if (((live.face > 0 && live.marge > 0) || live.discovered === true) && !existingNames.has(live.name.toLowerCase().slice(0,20))) {
         // Add new event discovered via API
@@ -361,30 +424,32 @@ async function scanLiveData(query = '', seuil = 0) {
    TELEGRAM DIRECT
 ══════════════════════════════════════════════ */
 async function sendTelegramDirect(events, seuil) {
-  // Stratégie 1 : Backend Node.js (sécurisé — token côté serveur)
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
-  if (backendUrl) {
-    try {
-      const res = await fetch(backendUrl + '/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          events: events.filter(e => e.marge >= seuil).slice(0, 5),
-          drops:  events.filter(e => hasDrop(e) && dropPct(e) <= -5).slice(0, 2),
-          seuil,
-          chatId: S.tgChatId,  // Le token reste côté serveur
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.sent || 0;
-      }
-    } catch(e) {
-      console.warn('[TG] Backend indisponible, fallback direct:', e.message);
+  if (!backendUrl) return 0;
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return 0;
+  } else return 0;
+  try {
+    const res = await fetch(backendUrl + '/api/notify', {
+      method: 'POST',
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({
+        events: events.filter(e => e.marge >= seuil).slice(0, 5),
+        drops:  events.filter(e => hasDrop(e) && dropPct(e) <= -5).slice(0, 2),
+        seuil,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.sent || 0;
     }
+    if (res.status === 401 || res.status === 400) {
+      console.warn('[TG] Backend notify:', res.status, await res.text());
+    }
+  } catch (e) {
+    console.warn('[TG] Backend indisponible:', e.message);
   }
-
-  // No direct Telegram fallback — backend only
   return 0;
 }
 
@@ -448,7 +513,7 @@ function applyLang() {
     'nav-compare':  fr ? 'Comparer'       : 'Compare',
     'nav-roi':      fr ? 'ROI Calc'       : 'ROI Calc',
     'nav-add':      fr ? '+ Ajouter'      : '+ Add',
-    'nav-pricing':  fr ? 'Tarifs 💎'      : 'Pricing 💎',
+    'nav-profile':  fr ? 'Profil 👤'      : 'Profile 👤',
     'nav-settings': fr ? 'Config ⚙'       : 'Settings ⚙',
   };
   Object.entries(navMap).forEach(([id, label]) => {
@@ -528,13 +593,7 @@ function updateTopbarKpis() {
   if (tbScans) tbScans.textContent = all.length;
   if (tbOpps)  tbOpps.textContent  = all.filter(e => e.marge >= 100).length;
   if (tbRoi)   tbRoi.textContent   = '+' + (all.length ? Math.round(all.reduce((a,e)=>a+e.marge,0)/all.length) : 0) + '%';
-  const user = window.currentUser;
-  if (sbUname)  sbUname.textContent  = user ? (user.email?.split('@')[0] || 'user') : 'Non connecté';
-  if (sbStatus) { sbStatus.textContent = user ? '● connecté' : '● offline'; sbStatus.style.color = user ? 'var(--teal)' : 'var(--t4)'; }
-  if (sbAvatar) sbAvatar.textContent = user ? (user.email?.slice(0,1).toUpperCase() || '?') : '?';
-  // Update sidebar user info
-  const emailSb = document.getElementById('user-email-sb');
-  if (emailSb && user) emailSb.textContent = (user.email||'').split('@')[0];
+  updateUserBtn();
 }
 
 /* ══════════════════════════════════════════════
@@ -543,8 +602,8 @@ function updateTopbarKpis() {
 
 function buildMobileCards(evs) {
   const fr = S.lang === 'fr';
-  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
-  return `<div class="mobile-cards-container" style="display:none">
+  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun evenement':'No events'}</div><button onclick="runScan()" style="margin-top:12px;background:var(--teal);color:var(--bg0);border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">⟳ ${fr?'Scanner maintenant':'Scan now'}</button></div>`;
+  return `<div class="mobile-cards-container">
     ${evs.map(e => {
       const drop = hasDrop(e);
       const dpct = dropPct(e);
@@ -565,11 +624,13 @@ function buildMobileCards(evs) {
           <span class="mec-pill">${e.discovered && !e.resale ? 'Prix TBD' : 'Revente: '+e.resale+'€'}</span>
           ${e.live ? '<span class="mec-pill" style="color:var(--green);border-color:var(--greenbdr)">📡 Live</span>' : ''}
           ${drop && dpct <= -5 ? `<span class="mec-pill" style="color:var(--red);border-color:var(--redbdr)">📉 ${dpct}%</span>` : ''}
+          ${e.spotify_popularity ? `<span class="mec-pill" style="color:${e.spotify_popularity>70?'#1DB954':'var(--t3)'};border-color:${e.spotify_popularity>70?'rgba(29,185,52,.3)':'var(--b3)'}">🎵 ${e.spotify_popularity}</span>` : ''}
         </div>
         <div class="mec-row">
           <span class="mec-pill">${e.platform||'—'}</span>
           <span class="cat-tag ct-${e.cat}">${e.cat.toUpperCase()}</span>
         </div>
+        ${(e.reco || (e.flags||[]).length) ? `<div class="mec-row">${recoBadge(e)}${flagBadges(e)}</div>` : ''}
         <div class="mec-actions">
           <button class="mec-btn mec-buy" onclick="openPlatform(${e.id})">🛒 ${fr?'Acheter':'Buy'}</button>
           <button class="mec-btn mec-kanban" onclick="addToKanban(${e.id},'watch')">🗂</button>
@@ -582,7 +643,7 @@ function buildMobileCards(evs) {
 
 function buildTable(evs) {
   const fr = S.lang === 'fr';
-  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun événement':'No events'}</div></div>`;
+  if (!evs.length) return `<div class="empty"><div class="empty-icon">◎</div><div class="empty-txt">${fr?'Aucun evenement':'No events'}</div><button onclick="runScan()" style="margin-top:12px;background:var(--teal);color:var(--bg0);border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">⟳ ${fr?'Scanner maintenant':'Scan now'}</button></div>`;
   const th = (col, label) => `<th onclick="sortBy('${col}')" class="${S.sortCol===col?'sorted':''}">${label}${S.sortCol===col?(S.sortDir<0?' ↓':' ↑'):''}</th>`;
   return `<div class="tbl-wrap"><table>
     <thead><tr>
@@ -593,6 +654,7 @@ function buildTable(evs) {
       ${th('resale','REVENTE')}
       ${th('marge','MARGE ↓')}
       ${th('score','SCORE')}
+      <th>🎵</th>
       <th>PLATEFORME</th>
       <th>ACTIONS</th>
     </tr></thead>
@@ -606,6 +668,7 @@ function buildTable(evs) {
           ${e.live?'<span class="live-badge">LIVE</span>':''}
           ${e.discovered?'<span style="display:inline-flex;align-items:center;font-size:8px;font-weight:700;font-family:var(--font-mono);padding:1px 6px;border-radius:3px;background:rgba(45,212,160,.10);color:#2DD4A0;border:1px solid rgba(45,212,160,.22);margin-left:4px">DÉCOUVERT</span>':''}
           ${drop&&dpct<=-5?`<span class="drop-badge">📉 ${dpct}%</span>`:''}
+          ${recoBadge(e)}${flagBadges(e)}
         </div>
         <div class="ev-sub">${e.sub||''} · ${e.date}</div>
       </td>
@@ -614,7 +677,8 @@ function buildTable(evs) {
       <td class="mf">${e.discovered && !e.face ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.face.toLocaleString()+'€'}</td>
       <td class="mr" style="color:${drop&&dpct<=-5?'var(--red)':'var(--t1)'}">${e.discovered && !e.resale ? '<span style="color:var(--t3);font-style:italic">Prix TBD</span>' : e.resale.toLocaleString()+'€'}${drop&&dpct<=-5?` <span style="font-size:9px;color:var(--red)">(${dpct}%)</span>`:''}</td>
       <td>${e.discovered && !e.marge ? '<span style="color:var(--t3);font-style:italic">—</span>' : `<span class="mb ${mc(e.marge)}">+${e.marge}%</span>`}</td>
-      <td><div style="display:flex;align-items:center;gap:6px"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
+      <td title="${axesTooltip(e)}"><div style="display:flex;align-items:center;gap:6px;${axesTooltip(e)?'cursor:help':''}"><span class="score-n" style="color:${sc(e.score)}">${e.score}</span><div class="score-bar"><div class="score-fill" style="width:${Math.round(e.score*10)}%;background:${sc(e.score)}"></div></div></div></td>
+      <td>${e.spotify_popularity ? `<div style="display:flex;align-items:center;gap:4px" title="Spotify: ${e.spotify_popularity}/100 · ${(e.spotify_followers||0).toLocaleString()} followers"><span style="color:${e.spotify_popularity>70?'#1DB954':e.spotify_popularity>40?'var(--gold2)':'var(--t4)'};font-size:10px;font-weight:700;font-family:var(--font-mono)">${e.spotify_popularity}</span><div style="width:28px;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden"><div style="width:${e.spotify_popularity}%;height:100%;background:${e.spotify_popularity>70?'#1DB954':e.spotify_popularity>40?'var(--gold2)':'var(--t4)'}"></div></div></div>` : '<span style="color:var(--t4);font-size:9px">—</span>'}</td>
       <td><span class="plat-tag">${e.platform}</span></td>
       <td>
         <div style="display:flex;gap:4px;align-items:center">
@@ -936,9 +1000,11 @@ function render() {
   else if (S.view === 'ai') renderAIPredictor(c);
   else if (S.view === 'presale') renderPresaleTracker(c);
   else if (S.view === 'discover') renderDiscover(c);
+  else if (S.view === 'rapport') renderRapport(c);
   else if (S.view === 'map') renderMap(c);
   else if (S.view === 'goals') renderGoals(c);
   else if (S.view === 'pricing') renderPricing(c);
+  else if (S.view === 'profile') renderProfile(c);
   else if (S.view === 'settings') renderSettings(c);
 }
 
@@ -976,6 +1042,20 @@ function renderDash(c) {
     ? ['Presale AMEX cette semaine ?','Meilleur moment vendre F1 Monaco ?','Top 3 signal ACHETER','Impact annulation sur prix ?']
     : ['AMEX presale this week?','Best time sell F1 Monaco?','Top 3 BUY signals','Cancellation price impact?'];
 
+  /* ── Onboarding check ── */
+  const hasUser = !!window.currentUser;
+  const hasSheet = S.sheetLoaded && all.length > 0;
+  const hasTg = !!S.tgChatId;
+  const hasKanban = Object.values(S.kanban).flat().length > 0;
+  const onboardDone = hasUser && hasSheet && hasTg && hasKanban;
+  const onboardSteps = [
+    { done: hasUser, title: fr?'Creer un compte':'Create an account', desc: fr?'Sauvegarde tes donnees dans le cloud':'Save your data to the cloud', action: hasUser?'':'showAuthModal()' },
+    { done: hasSheet, title: fr?'Configurer ta source de donnees':'Set up your data source', desc: fr?'Connecte un Google Sheet ou lance un scan':'Connect a Google Sheet or run a scan', action: hasSheet?'':"nav('settings',document.getElementById('nav-settings'))" },
+    { done: hasTg, title: fr?'Activer les alertes Telegram':'Enable Telegram alerts', desc: fr?'Recois les meilleures opportunites en temps reel':'Get top opportunities in real time', action: hasTg?'':"nav('profile',document.getElementById('nav-profile'))" },
+    { done: hasKanban, title: fr?'Ajouter ton premier ticket':'Add your first ticket', desc: fr?'Commence a tracker tes achats/ventes':'Start tracking your buys/sells', action: hasKanban?'':"nav('add',document.getElementById('nav-add'))" },
+  ];
+  const onboardPct = Math.round(onboardSteps.filter(s=>s.done).length / onboardSteps.length * 100);
+
   c.innerHTML = `
   <!-- ── ROW 0 : PAGE TITLE ── -->
   <div class="c-page-head">
@@ -984,6 +1064,19 @@ function renderDash(c) {
       <div class="c-page-title">Predictive Intelligence <span style="color:var(--v6-teal)">Hybrid</span></div>
     </div>
   </div>
+
+  ${!onboardDone ? `
+  <!-- ── ONBOARDING ── -->
+  <div class="card" style="margin-bottom:16px;border:1px solid rgba(45,212,160,.15)">
+    <div class="card-head">
+      <span class="card-title">${fr?'Demarrage rapide':'Quick Start'}</span>
+      <span class="card-meta" style="color:var(--v6-teal)">${onboardPct}%</span>
+    </div>
+    <div style="height:4px;background:var(--v6-bg3);border-radius:2px;margin-bottom:14px;overflow:hidden"><div style="width:${onboardPct}%;height:100%;background:var(--v6-teal);border-radius:2px;transition:width .3s"></div></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${onboardSteps.map((s,i) => `<div class="onboard-step ${s.done?'done':''}" ${s.action?`onclick="${s.action}" style="cursor:pointer"`:''}><div class="onboard-check">${s.done?'✓':(i+1)}</div><div><div class="onboard-title">${s.title}</div><div class="onboard-desc">${s.desc}</div></div></div>`).join('')}
+    </div>
+  </div>` : ''}
 
   <!-- ── ROW 1 : KPI CARDS ── -->
   <div class="c-kpi-grid">
@@ -1822,11 +1915,281 @@ function renderGoals(c) {
 }
 
 /* ══════════════════════════════════════════════
+   PROFILE
+══════════════════════════════════════════════ */
+function renderProfile(c) {
+  const fr = S.lang === 'fr';
+  const user = window.currentUser;
+
+  if (!user) {
+    c.innerHTML = `<div class="card" style="text-align:center;padding:60px 24px">
+      <div style="font-size:48px;margin-bottom:16px">👤</div>
+      <h3 style="margin-bottom:8px">${fr?'Non connecte':'Not signed in'}</h3>
+      <p style="color:var(--t3);margin-bottom:24px;font-size:13px">${fr?'Connecte-toi pour acceder a ton profil':'Sign in to access your profile'}</p>
+      <button onclick="showAuthModal()" style="background:var(--teal);color:var(--bg0);border:none;padding:12px 28px;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px">${fr?'Se connecter':'Sign in'}</button>
+    </div>`;
+    return;
+  }
+
+  const initials = (user.email || '??').slice(0, 2).toUpperCase();
+  const plan = user.plan || 'free';
+  const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString(fr?'fr-FR':'en-US', { year:'numeric', month:'long', day:'numeric' }) : '—';
+
+  const planBadge = plan === 'pro'
+    ? '<span style="background:var(--v6-purple);color:#fff;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700">PRO</span>'
+    : '<span style="background:var(--bg4);color:var(--t3);padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid var(--b3)">FREE</span>';
+
+  const mkts = S.markets || { us: true, uk: true, eu: true };
+
+  c.innerHTML = `
+    <div style="max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
+
+      <!-- PROFILE HEADER -->
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:20px;padding:8px 0">
+          <div style="width:64px;height:64px;min-width:64px;border-radius:16px;background:linear-gradient(135deg,var(--teal),var(--v6-blue));display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:var(--bg0);font-family:var(--font-head)">${initials}</div>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+              <input id="prof-name" value="${user.display_name || user.email?.split('@')[0] || ''}" placeholder="${fr?'Nom d\'affichage':'Display name'}" style="background:transparent;border:1px solid var(--b3);border-radius:6px;padding:6px 10px;color:var(--t1);font-size:15px;font-weight:700;width:200px" onchange="saveProfileName(this.value)">
+              ${planBadge}
+            </div>
+            <div style="font-size:12px;color:var(--t3);font-family:var(--font-mono)">${user.email}</div>
+            <div style="font-size:11px;color:var(--t4);margin-top:4px">${fr?'Membre depuis':'Member since'} ${memberSince}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CURRENT PLAN -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Mon abonnement':'My Plan'}</span>
+          ${planBadge}
+        </div>
+        ${plan === 'pro' ? `
+          <div style="padding:12px 0">
+            <div style="color:var(--t2);font-size:13px;margin-bottom:12px">${fr?'Plan Pro actif — 49€/mois':'Pro plan active — 49€/month'}</div>
+            <div style="display:flex;gap:10px">
+              <button onclick="window.open('https://billing.stripe.com/p/login/test','_blank')" style="background:var(--bg4);border:1px solid var(--b3);color:var(--t2);padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer">${fr?'Gerer mon abonnement':'Manage subscription'}</button>
+            </div>
+          </div>
+        ` : `
+          <div style="padding:12px 0">
+            <div style="color:var(--t3);font-size:13px;margin-bottom:4px">${fr?'Plan gratuit — fonctionnalites limitees':'Free plan — limited features'}</div>
+            <div style="color:var(--t4);font-size:11px;margin-bottom:16px">${fr?'Passe Pro pour l\'IA, les alertes Telegram et le scan auto':'Upgrade to Pro for AI, Telegram alerts and auto-scan'}</div>
+            <button onclick="startProCheckout()" style="background:var(--v6-purple);color:#fff;border:none;padding:10px 24px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">${fr?'Passer Pro — 49€/mois':'Upgrade to Pro — 49€/month'}</button>
+          </div>
+        `}
+      </div>
+
+      <!-- TELEGRAM CONFIG -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Telegram':'Telegram'}</span>
+          <span class="card-meta">${S.tgChatId ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--t4)">—</span>'}</span>
+        </div>
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px">
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Chat ID</div>
+            <div style="display:flex;gap:8px">
+              <input id="prof-chatid" value="${S.tgChatId||''}" placeholder="123456789" style="flex:1;background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:8px 12px;color:var(--t1);font-size:13px;font-family:var(--font-mono)">
+              <button onclick="profileTestTg()" style="background:var(--bg4);border:1px solid var(--b3);color:var(--t2);padding:8px 14px;border-radius:6px;font-size:11px;cursor:pointer;white-space:nowrap">🧪 Test</button>
+              <button onclick="profileSaveTg()" style="background:var(--teal);color:var(--bg0);border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">${fr?'Sauver':'Save'}</button>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--t4)">${fr?'Ton Chat ID Telegram pour recevoir les alertes. Envoie /start a @userinfobot pour le trouver.':'Your Telegram Chat ID for alerts. Send /start to @userinfobot to find it.'}</div>
+        </div>
+      </div>
+
+      <!-- CHANGE PASSWORD -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Changer le mot de passe':'Change Password'}</span>
+        </div>
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px">
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${fr?'NOUVEAU MOT DE PASSE':'NEW PASSWORD'}</div>
+            <input id="prof-newpwd" type="password" placeholder="${fr?'Minimum 6 caracteres':'Minimum 6 characters'}" style="width:100%;background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:8px 12px;color:var(--t1);font-size:13px;box-sizing:border-box">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${fr?'CONFIRMER':'CONFIRM'}</div>
+            <input id="prof-confirmpwd" type="password" placeholder="${fr?'Repete le mot de passe':'Repeat password'}" style="width:100%;background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:8px 12px;color:var(--t1);font-size:13px;box-sizing:border-box">
+          </div>
+          <button onclick="profileChangePassword()" style="align-self:flex-start;background:var(--bg4);border:1px solid var(--b3);color:var(--t1);padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">${fr?'Mettre a jour':'Update password'}</button>
+        </div>
+      </div>
+
+      <!-- PREFERENCES -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">${fr?'Preferences':'Preferences'}</span>
+        </div>
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:16px">
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${fr?'SEUIL MARGE MINIMUM':'MIN MARGIN THRESHOLD'}</div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <input type="range" id="prof-seuil" min="0" max="300" step="5" value="${S.seuil}" oninput="document.getElementById('prof-seuil-val').textContent='+'+this.value+'%'" style="flex:1;accent-color:var(--v6-teal)">
+              <span id="prof-seuil-val" style="font-family:var(--font-mono);font-size:13px;color:var(--teal);min-width:50px">+${S.seuil}%</span>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${fr?'LANGUE':'LANGUAGE'}</div>
+            <div style="display:flex;gap:8px">
+              <button onclick="profileSetLang('fr')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${S.lang==='fr'?'var(--teal)':'var(--b3)'};background:${S.lang==='fr'?'rgba(45,212,160,.1)':'var(--bg3)'};color:${S.lang==='fr'?'var(--teal)':'var(--t3)'}">🇫🇷 Francais</button>
+              <button onclick="profileSetLang('en')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${S.lang==='en'?'var(--teal)':'var(--b3)'};background:${S.lang==='en'?'rgba(45,212,160,.1)':'var(--bg3)'};color:${S.lang==='en'?'var(--teal)':'var(--t3)'}">🇬🇧 English</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${fr?'MARCHES':'MARKETS'}</div>
+            <div style="display:flex;gap:12px">
+              ${['US','UK','EU'].map(m => `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--t2)">
+                <input type="checkbox" id="prof-mkt-${m.toLowerCase()}" ${mkts[m.toLowerCase()]!==false?'checked':''} onchange="profileToggleMarket('${m.toLowerCase()}')" style="accent-color:var(--v6-teal)"> ${m}
+              </label>`).join('')}
+            </div>
+          </div>
+          <button onclick="profileSavePrefs()" style="align-self:flex-start;background:var(--teal);color:var(--bg0);border:none;padding:8px 20px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">${fr?'Sauvegarder':'Save preferences'}</button>
+        </div>
+      </div>
+
+      <!-- DANGER ZONE -->
+      <div class="card" style="border:1px solid rgba(255,94,94,.15)">
+        <div class="card-head">
+          <span class="card-title" style="color:var(--red)">${fr?'Zone dangereuse':'Danger Zone'}</span>
+        </div>
+        <div style="padding:8px 0">
+          <div style="color:var(--t3);font-size:12px;margin-bottom:12px">${fr?'Supprime definitivement ton compte et toutes tes donnees. Cette action est irreversible.':'Permanently delete your account and all data. This action cannot be undone.'}</div>
+          <button onclick="profileConfirmDelete()" style="background:rgba(255,94,94,.08);border:1px solid rgba(255,94,94,.2);color:var(--red);padding:10px 20px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">${fr?'Supprimer mon compte':'Delete my account'}</button>
+        </div>
+      </div>
+
+    </div>`;
+}
+
+/* ── Profile actions ── */
+
+async function saveProfileName(name) {
+  const user = window.currentUser;
+  if (!user) return;
+  try {
+    user.display_name = name;
+    await sbUpdateProfile(user.id, { display_name: name });
+    toast(S.lang==='fr'?'Nom sauvegarde ✓':'Name saved ✓', '✓');
+  } catch(e) { toast('Erreur: '+e.message, '⚠'); }
+}
+
+async function profileTestTg() {
+  const chatId = document.getElementById('prof-chatid')?.value.trim();
+  if (!chatId) { toast(S.lang==='fr'?'Entre ton Chat ID':'Enter Chat ID','⚠'); return; }
+  const user = window.currentUser;
+  if (!user) { toast(S.lang==='fr'?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) { toast(S.lang==='fr'?'Backend non configure':'Backend not configured','⚠'); return; }
+  try {
+    await sbUpdateProfile(user.id, { tg_chat_id: chatId });
+    const res = await fetch(backendUrl + '/api/notify', {
+      method: 'POST',
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({ events: [], drops: [], seuil: 0, test: true }),
+    });
+    const d = await res.json();
+    if (res.ok) toast(S.lang==='fr'?'✓ Message Telegram envoye !':'✓ Telegram message sent!','📱');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.hint||'unknown'),'⚠');
+  } catch(e) { toast('Erreur: '+e.message,'⚠'); }
+}
+
+async function profileSaveTg() {
+  const chatId = document.getElementById('prof-chatid')?.value.trim();
+  if (!chatId) { toast(S.lang==='fr'?'Entre ton Chat ID':'Enter Chat ID','⚠'); return; }
+  S.tgChatId = chatId;
+  saveState();
+  const user = window.currentUser;
+  if (user) {
+    try { await sbUpdateProfile(user.id, { tg_chat_id: chatId }); } catch(e) {}
+  }
+  toast(S.lang==='fr'?'Chat ID sauvegarde ✓':'Chat ID saved ✓','📱');
+  render();
+}
+
+async function profileChangePassword() {
+  const fr = S.lang === 'fr';
+  const newPwd = document.getElementById('prof-newpwd')?.value;
+  const confirmPwd = document.getElementById('prof-confirmpwd')?.value;
+  if (!newPwd || newPwd.length < 6) { toast(fr?'6 caracteres minimum':'6 characters minimum','⚠'); return; }
+  if (newPwd !== confirmPwd) { toast(fr?'Les mots de passe ne correspondent pas':'Passwords don\'t match','⚠'); return; }
+  try {
+    const { error } = await sb.auth.updateUser({ password: newPwd });
+    if (error) throw error;
+    document.getElementById('prof-newpwd').value = '';
+    document.getElementById('prof-confirmpwd').value = '';
+    toast(fr?'Mot de passe mis a jour ✓':'Password updated ✓','🔒');
+  } catch(e) { toast('Erreur: '+e.message,'⚠'); }
+}
+
+function profileSetLang(lang) {
+  S.lang = lang;
+  saveState();
+  applyLang();
+  render();
+}
+
+function profileToggleMarket(mkt) {
+  if (!S.markets) S.markets = { us: true, uk: true, eu: true };
+  S.markets[mkt] = !S.markets[mkt];
+}
+
+async function profileSavePrefs() {
+  const fr = S.lang === 'fr';
+  S.seuil = parseInt(document.getElementById('prof-seuil')?.value) || 30;
+  const seuilEl = document.getElementById('seuil');
+  const seuilVal = document.getElementById('seuil-val');
+  if (seuilEl) seuilEl.value = S.seuil;
+  if (seuilVal) seuilVal.textContent = '+' + S.seuil + '%';
+  saveState();
+  const user = window.currentUser;
+  if (user) {
+    try { await sbUpdateProfile(user.id, { seuil: S.seuil, lang: S.lang }); } catch(e) {}
+  }
+  toast(fr?'Preferences sauvegardees ✓':'Preferences saved ✓','✓');
+  render();
+}
+
+function profileConfirmDelete() {
+  const fr = S.lang === 'fr';
+  const msg = fr
+    ? 'Es-tu SUR de vouloir supprimer ton compte ? Toutes tes donnees seront perdues. Tape "SUPPRIMER" pour confirmer.'
+    : 'Are you SURE you want to delete your account? All data will be lost. Type "DELETE" to confirm.';
+  const confirm = prompt(msg);
+  if (confirm === (fr ? 'SUPPRIMER' : 'DELETE')) {
+    profileDeleteAccount();
+  }
+}
+
+async function profileDeleteAccount() {
+  const fr = S.lang === 'fr';
+  const user = window.currentUser;
+  if (!user) return;
+  try {
+    // Delete user data from Supabase tables
+    await Promise.allSettled([
+      sb.from('watchlist').delete().eq('user_id', user.id),
+      sb.from('kanban').delete().eq('user_id', user.id),
+      sb.from('price_history').delete().eq('user_id', user.id),
+      sb.from('custom_events').delete().eq('user_id', user.id),
+      sb.from('profiles').delete().eq('id', user.id),
+    ]);
+    // Sign out
+    await doSignOut();
+    toast(fr?'Compte supprime':'Account deleted','👋');
+  } catch(e) {
+    toast('Erreur: '+e.message,'⚠');
+  }
+}
+
+/* ══════════════════════════════════════════════
    PRICING
 ══════════════════════════════════════════════ */
 function renderPricing(c) {
   const fr = S.lang === 'fr';
-  const userPlan = (S.user && S.user.plan) || 'free';
+  const userPlan = (window.currentUser && window.currentUser.plan) || 'free';
 
   const freeName = 'Free';
   const proName  = 'Pro';
@@ -1873,15 +2236,15 @@ async function startProCheckout() {
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) { toast(fr?'Configure le backend':'Configure backend URL','⚠'); return; }
 
-  const email = S.user?.email;
-  if (!email) { toast(fr?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
+  const user = window.currentUser;
+  if (!user?.email) { toast(fr?'Connecte-toi d\'abord':'Sign in first','⚠'); return; }
 
   try {
     toast(fr?'Redirection vers Stripe...':'Redirecting to Stripe...','💳');
     const res = await fetch(backendUrl + '/api/create-checkout', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, userId: S.user?.id || '' })
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({}),
     });
     const data = await res.json();
     if (data.url) {
@@ -1993,14 +2356,18 @@ async function testTgDirect() {
   if (!chatid) { toast(S.lang==='fr'?'Renseigne le chat ID':'Enter chat ID','⚠'); return; }
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) { toast(S.lang==='fr'?'Configure l\'URL du backend':'Configure backend URL','⚠'); return; }
+  const user = window.currentUser;
+  if (!user) { toast(S.lang==='fr'?'Connecte-toi pour tester via le backend securise':'Sign in to test via secure backend','⚠'); return; }
   try {
+    await sbUpdateProfile(user.id, { tg_chat_id: chatid });
     const r = await fetch(backendUrl + '/api/notify', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ events:[], drops:[], seuil:0, chatId:chatid, test:true })
+      method: 'POST',
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({ events: [], drops: [], seuil: 0, test: true }),
     });
     const d = await r.json();
     if (r.ok) toast(S.lang==='fr'?'✓ Message Telegram reçu !':'✓ Telegram message received!','📱');
-    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.description),'⚠');
+    else toast((S.lang==='fr'?'Erreur : ':'Error: ')+(d.error||d.hint||d.description),'⚠');
   } catch(e) { toast('Erreur : '+e.message,'⚠'); }
 }
 
@@ -2087,11 +2454,15 @@ function applyTheme() {
 async function checkCountdownAlerts(events) {
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) return;
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return;
+  } else return;
   try {
     const res = await fetch(backendUrl + '/api/countdown', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events, chatId: S.tgChatId })
+      headers: await backendAuthHeaders(),
+      body: JSON.stringify({ events }),
     });
     if (!res.ok) return;
     const data = await res.json();
@@ -2115,17 +2486,23 @@ async function runScan() {
   const anim = setInterval(() => { if (ic) ic.textContent = frames[fi++ % 3]; }, 300);
 
   try {
+    const fr = S.lang === 'fr';
+
     // 1. Charger le sheet (données manuelles)
+    toast(fr?'1/4 — Chargement du sheet...':'1/4 — Loading sheet...','⟳');
     await loadSheet();
 
-    // 2. Scanner les APIs live (SeatGeek + Ticketmaster)
-    if (lbl) lbl.textContent = S.lang === 'fr' ? 'APIs...' : 'Live scan...';
+    // 2. Scanner les APIs live (SeatGeek + Ticketmaster + Last.fm)
+    if (lbl) lbl.textContent = fr ? 'APIs...' : 'Live scan...';
+    toast(fr?'2/4 — Scan SeatGeek + Ticketmaster + Last.fm...':'2/4 — Scanning SeatGeek + Ticketmaster + Last.fm...','📡');
     const liveCount = await scanLiveData('', S.seuil);
 
     // 3. Alertes Telegram
+    toast(fr?'3/4 — Envoi alertes Telegram...':'3/4 — Sending Telegram alerts...','📱');
     const tgSent = await sendTelegramDirect(allEvs(), S.seuil);
 
     // 4. Countdown J-7/J-3/J-1
+    toast(fr?'4/4 — Verification countdowns...':'4/4 — Checking countdowns...','⏰');
     await checkCountdownAlerts(allEvs());
 
     // 5. Presale alerts
@@ -2185,21 +2562,107 @@ function switchAuthTab(mode) {
   _authMode = mode;
   const signin = document.getElementById('tab-signin');
   const signup = document.getElementById('tab-signup');
+  const tabs   = document.getElementById('auth-tabs');
   const btn    = document.getElementById('auth-submit-btn');
   const sub    = document.getElementById('auth-subtitle');
-  if (mode === 'signin') {
-    signin.style.background = 'var(--bg5)'; signin.style.color = 'var(--gold2)';
-    signup.style.background = 'transparent'; signup.style.color = 'var(--t3)';
-    if (btn) btn.textContent = 'Se connecter';
-    if (sub) sub.textContent = 'Connecte-toi pour retrouver tes données';
+  const pwdWrap = document.getElementById('auth-password-wrap');
+  const forgot = document.getElementById('auth-forgot-link');
+  const backBtn = document.getElementById('auth-back-signin');
+  const skipBtn = document.getElementById('auth-skip-btn');
+  const form = document.getElementById('auth-form');
+  const recovery = document.getElementById('auth-recovery');
+  const successEl = document.getElementById('auth-success');
+
+  if (form) form.style.display = 'flex';
+  if (recovery) recovery.style.display = 'none';
+  if (successEl) { successEl.style.display = 'none'; successEl.textContent = ''; }
+  if (btn) btn.style.display = 'block';
+
+  if (mode === 'reset') {
+    if (tabs) tabs.style.display = 'none';
+    if (pwdWrap) pwdWrap.style.display = 'none';
+    if (forgot) forgot.style.display = 'none';
+    if (backBtn) backBtn.style.display = 'block';
+    if (skipBtn) skipBtn.style.display = 'none';
+    if (btn) btn.textContent = S.lang === 'en' ? 'Send reset link' : 'Envoyer le lien';
+    if (sub) sub.textContent = S.lang === 'en'
+      ? 'Enter your email to receive a reset link'
+      : 'Entre ton email pour recevoir un lien de réinitialisation';
+  } else if (mode === 'signin') {
+    if (tabs) tabs.style.display = 'flex';
+    if (pwdWrap) pwdWrap.style.display = 'block';
+    if (forgot) forgot.style.display = 'block';
+    if (backBtn) backBtn.style.display = 'none';
+    if (skipBtn) skipBtn.style.display = 'block';
+    if (signin) { signin.style.background = 'var(--bg5)'; signin.style.color = 'var(--gold2)'; }
+    if (signup) { signup.style.background = 'transparent'; signup.style.color = 'var(--t3)'; }
+    if (btn) btn.textContent = S.lang === 'en' ? 'Sign in' : 'Se connecter';
+    if (sub) sub.textContent = S.lang === 'en'
+      ? 'Sign in to sync your data'
+      : 'Connecte-toi pour retrouver tes données';
   } else {
-    signup.style.background = 'var(--bg5)'; signup.style.color = 'var(--gold2)';
-    signin.style.background = 'transparent'; signin.style.color = 'var(--t3)';
-    if (btn) btn.textContent = "S'inscrire";
-    if (sub) sub.textContent = 'Crée ton compte TicketRadar';
+    if (tabs) tabs.style.display = 'flex';
+    if (pwdWrap) pwdWrap.style.display = 'block';
+    if (forgot) forgot.style.display = 'none';
+    if (backBtn) backBtn.style.display = 'none';
+    if (skipBtn) skipBtn.style.display = 'block';
+    if (signup) { signup.style.background = 'var(--bg5)'; signup.style.color = 'var(--gold2)'; }
+    if (signin) { signin.style.background = 'transparent'; signin.style.color = 'var(--t3)'; }
+    if (btn) btn.textContent = S.lang === 'en' ? 'Sign up' : "S'inscrire";
+    if (sub) sub.textContent = S.lang === 'en'
+      ? 'Create your TicketRadar account'
+      : 'Crée ton compte TicketRadar';
   }
   const errEl = document.getElementById('auth-error');
   if (errEl) errEl.style.display = 'none';
+}
+
+function showPasswordRecoveryModal() {
+  showAuthModal();
+  const form = document.getElementById('auth-form');
+  const recovery = document.getElementById('auth-recovery');
+  const tabs = document.getElementById('auth-tabs');
+  const sub = document.getElementById('auth-subtitle');
+  const successEl = document.getElementById('auth-success');
+  if (tabs) tabs.style.display = 'none';
+  if (form) form.style.display = 'none';
+  if (recovery) recovery.style.display = 'flex';
+  if (successEl) successEl.style.display = 'none';
+  if (sub) sub.textContent = S.lang === 'en' ? 'Set a new password' : 'Définis un nouveau mot de passe';
+  const err = document.getElementById('auth-recovery-error');
+  if (err) err.style.display = 'none';
+}
+
+async function submitNewPassword() {
+  const p1 = document.getElementById('auth-new-password')?.value || '';
+  const p2 = document.getElementById('auth-new-password2')?.value || '';
+  const errEl = document.getElementById('auth-recovery-error');
+  const btn = document.getElementById('auth-recovery-btn');
+  const fr = S.lang !== 'en';
+
+  if (p1.length < 6) {
+    if (errEl) { errEl.textContent = fr ? '6 caractères minimum' : 'Minimum 6 characters'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (p1 !== p2) {
+    if (errEl) { errEl.textContent = fr ? 'Les mots de passe ne correspondent pas' : 'Passwords do not match'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = fr ? '⟳ Enregistrement...' : '⟳ Saving...'; }
+
+  try {
+    await sbUpdatePassword(p1);
+    hideAuthModal();
+    updateUserBtn();
+    toast(fr ? '✓ Mot de passe mis à jour' : '✓ Password updated', '🔒');
+    window.history.replaceState({}, '', window.location.pathname + window.location.search);
+    switchAuthTab('signin');
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || (fr ? 'Erreur' : 'Error'); errEl.style.display = 'block'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = fr ? 'Enregistrer le mot de passe' : 'Save password'; }
+  }
 }
 
 async function submitAuth() {
@@ -2208,19 +2671,49 @@ async function submitAuth() {
   const errEl    = document.getElementById('auth-error');
   const btn      = document.getElementById('auth-submit-btn');
   const successEl = document.getElementById('auth-success');
+  const fr = S.lang !== 'en';
+
+  if (_authMode === 'reset') {
+    if (!email) {
+      if (errEl) { errEl.textContent = fr ? 'Email requis' : 'Email required'; errEl.style.display = 'block'; }
+      return;
+    }
+    if (errEl) errEl.style.display = 'none';
+    if (btn) { btn.textContent = fr ? '⟳ Envoi...' : '⟳ Sending...'; btn.disabled = true; }
+    try {
+      await sbResetPassword(email);
+      if (successEl) {
+        successEl.textContent = fr
+          ? '✓ Lien envoyé ! Vérifie ta boîte mail (et les spams).'
+          : '✓ Link sent! Check your inbox (and spam).';
+        successEl.style.display = 'block';
+      }
+      if (btn) btn.style.display = 'none';
+    } catch (err) {
+      if (errEl) { errEl.textContent = err.message || (fr ? 'Erreur d\'envoi' : 'Send error'); errEl.style.display = 'block'; }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        if (btn.style.display !== 'none') btn.textContent = fr ? 'Envoyer le lien' : 'Send reset link';
+      }
+    }
+    return;
+  }
 
   if (!email || !password) {
-    if (errEl) { errEl.textContent = 'Email et mot de passe requis'; errEl.style.display = 'block'; }
+    if (errEl) { errEl.textContent = fr ? 'Email et mot de passe requis' : 'Email and password required'; errEl.style.display = 'block'; }
     return;
   }
   if (errEl) errEl.style.display = 'none';
-  if (btn) { btn.textContent = '⟳ Chargement...'; btn.disabled = true; }
+  if (btn) { btn.textContent = fr ? '⟳ Chargement...' : '⟳ Loading...'; btn.disabled = true; }
 
   try {
     if (_authMode === 'signup') {
-      await sbSignUp(email, password);
+      await sbSignUp(email, password, { lang: S.lang === 'en' ? 'en' : 'fr' });
       if (successEl) {
-        successEl.textContent = '✓ Compte créé ! Vérifie ton email pour confirmer.';
+        successEl.textContent = fr
+          ? '✓ Compte créé ! Vérifie ton email pour confirmer.'
+          : '✓ Account created! Check your email to confirm.';
         successEl.style.display = 'block';
       }
       if (btn) btn.style.display = 'none';
@@ -2228,42 +2721,55 @@ async function submitAuth() {
       await sbSignIn(email, password);
       hideAuthModal();
       updateUserBtn();
-      toast(S.lang==='fr'?'✓ Bienvenue !':'✓ Welcome!', '👤');
-      // Reset form
+      toast(fr ? '✓ Bienvenue !' : '✓ Welcome!', '👤');
       const emailEl = document.getElementById('auth-email');
       const pwdEl   = document.getElementById('auth-password');
       if (emailEl) emailEl.value = '';
       if (pwdEl)   pwdEl.value   = '';
     }
   } catch(err) {
-    const msg = err.message?.includes('Invalid login') ? 'Email ou mot de passe incorrect'
-              : err.message?.includes('already registered') ? 'Email déjà utilisé'
-              : err.message || 'Erreur de connexion';
+    const msg = err.message?.includes('Invalid login') ? (fr ? 'Email ou mot de passe incorrect' : 'Invalid email or password')
+              : err.message?.includes('already registered') ? (fr ? 'Email déjà utilisé' : 'Email already registered')
+              : err.message || (fr ? 'Erreur de connexion' : 'Sign-in error');
     if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = _authMode === 'signup' ? "S'inscrire" : 'Se connecter'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = _authMode === 'signup'
+        ? (fr ? "S'inscrire" : 'Sign up')
+        : (fr ? 'Se connecter' : 'Sign in');
+    }
   }
 }
 
 function updateUserBtn() {
   const btn = document.getElementById('user-btn');
-  if (!btn) return;
+  const emailSb = document.getElementById('user-email-sb');
+  const statusSb = document.getElementById('user-status-sb');
   const user = window.currentUser;
   if (user) {
     const letter = user.email?.slice(0,1).toUpperCase() || '?';
-    btn.textContent = letter;
-    btn.style.background = 'var(--gold)';
-    btn.style.color = 'var(--bg0)';
-    btn.style.fontFamily = 'var(--font-head)';
-    btn.style.fontWeight = '800';
-    btn.style.fontSize = '13px';
-    btn.title = user.email;
+    if (btn) {
+      btn.textContent = letter;
+      btn.style.background = 'var(--gold)';
+      btn.style.color = 'var(--bg0)';
+      btn.style.fontFamily = 'var(--font-head)';
+      btn.style.fontWeight = '800';
+      btn.style.fontSize = '13px';
+      btn.title = user.email;
+    }
+    if (emailSb) emailSb.textContent = user.email?.split('@')[0] || 'user';
+    if (statusSb) { statusSb.textContent = '● ' + (S.lang==='fr'?'connecte':'connected'); statusSb.style.color = 'var(--v6-teal)'; }
   } else {
-    btn.textContent = '👤';
-    btn.style.background = 'var(--goldbg)';
-    btn.style.color = 'var(--gold2)';
-    btn.style.fontWeight = '';
-    btn.title = 'Se connecter';
+    if (btn) {
+      btn.textContent = '👤';
+      btn.style.background = 'var(--goldbg)';
+      btn.style.color = 'var(--gold2)';
+      btn.style.fontWeight = '';
+      btn.title = 'Se connecter';
+    }
+    if (emailSb) emailSb.textContent = S.lang==='fr'?'Mon compte':'My account';
+    if (statusSb) { statusSb.textContent = '● local'; statusSb.style.color = 'var(--v6-t3)'; }
   }
 }
 
@@ -2276,8 +2782,12 @@ function toggleUserMenu() {
   if (emailEl) {
     const kanbanCount = Object.values(S.kanban).flat().length;
     const wlCount = S.wl.length;
+    const plan = user.plan || 'free';
+    const planBadge = plan === 'pro'
+      ? '<span style="background:var(--v6-purple);color:#fff;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700">PRO</span>'
+      : '<span style="background:var(--v6-border);color:var(--v6-t3);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600">FREE</span>';
     emailEl.innerHTML = `
-      <div style="font-weight:600;color:var(--t1);margin-bottom:4px">${user.email}</div>
+      <div style="font-weight:600;color:var(--t1);margin-bottom:4px">${user.email} ${planBadge}</div>
       <div style="color:var(--t4);font-size:9px">
         🗂 ${kanbanCount} Kanban · ★ ${wlCount} Watchlist
       </div>
@@ -2292,29 +2802,20 @@ function closeUserMenu() {
 }
 
 async function doSignOut() {
-  try {
-    closeUserMenu();
-    await sbSignOut();
-    window.currentUser = null;
-    updateUserBtn();
-    // Reset local state
-    S.kanban = { watch: [], bought: [], selling: [], sold: [] };
-    S.wl = [];
-    S.customEvents = [];
-    saveState();
-    toast(S.lang==='fr'?'À bientôt !':'See you!', '👋');
-    render();
-    // Show auth modal after short delay
-    setTimeout(showAuthModal, 800);
-  } catch(err) {
-    console.error('[Auth] Signout error:', err);
-    // Force signout even if error
-    window.currentUser = null;
-    updateUserBtn();
-    toast(S.lang==='fr'?'Déconnecté':'Signed out', '👋');
-    render();
-    setTimeout(showAuthModal, 800);
-  }
+  closeUserMenu();
+  // Always force-clear local state regardless of API result
+  try { await sbSignOut(); } catch(err) { console.warn('[Auth] Signout API error:', err.message); }
+  window.currentUser = null;
+  // Reset local state
+  S.kanban = { watch: [], bought: [], selling: [], sold: [] };
+  S.wl = [];
+  S.customEvents = [];
+  saveState();
+  updateUserBtn();
+  toast(S.lang==='fr'?'À bientôt !':'See you!', '👋');
+  render();
+  // Show auth modal after short delay
+  setTimeout(showAuthModal, 800);
 }
 
 // Close menu on outside click
@@ -2337,10 +2838,28 @@ function init() {
   fetchLiveFX();
   applyTheme(); // Apply saved theme
   // Check if user is logged in
-  sbGetUser().then(user => {
+  sbGetUser().then(async user => {
     if (user) {
       window.currentUser = user;
       updateUserBtn();
+      // Load profile to get plan info
+      try {
+        const profile = await sbGetProfile(user.id);
+        if (profile && window.currentUser) {
+          window.currentUser.plan = profile.plan || 'free';
+        }
+      } catch(e) {}
+      // Handle Stripe redirect
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('upgrade') === 'success') {
+        window.currentUser.plan = 'pro';
+        toast(S.lang==='fr'?'Bienvenue dans le plan Pro !':'Welcome to Pro!','💎');
+        window.history.replaceState({}, '', window.location.pathname);
+        render();
+      } else if (params.get('upgrade') === 'cancel') {
+        toast(S.lang==='fr'?'Paiement annulé':'Payment cancelled','ℹ');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     } else {
       // Show auth modal after 1 second
       setTimeout(showAuthModal, 1000);
@@ -2590,6 +3109,129 @@ function importDiscoveredEvent(idx) {
   });
   saveState();
   toast(S.lang==='fr'?`"${ev.name.slice(0,25)}" importé !`:`"${ev.name.slice(0,25)}" imported!`, '✓');
+}
+
+/* ══════════════════════════════════════════════
+   RAPPORT — Import du rapport quotidien (marché secondaire)
+══════════════════════════════════════════════ */
+function renderRapport(c) {
+  const fr = S.lang === 'fr';
+  const evs = S._rapportEvents || [];
+  const meta = S._rapportMeta || {};
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">📄 ${fr?'Rapport quotidien':'Daily report'}</span>
+        <span class="card-meta">${meta.date ? (fr?'Rapport du ':'Report of ')+meta.date : (fr?'Aucun rapport chargé':'No report loaded')}</span>
+      </div>
+      <div style="padding:14px 18px;border-bottom:1px solid var(--b3)">
+        <div style="font-size:10px;color:var(--t3);font-family:var(--font-mono);margin-bottom:8px">${fr?'Colle ici le JSON du rapport quotidien (généré par la tâche planifiée), ou charge un fichier :':'Paste the daily report JSON here, or load a file:'}</div>
+        <textarea id="rapport-json" placeholder='{"date":"2026-08-01","events":[...]}' style="width:100%;min-height:90px;background:var(--bg4);border:1px solid var(--b3);border-radius:8px;color:var(--t1);font-family:var(--font-mono);font-size:10px;padding:10px;resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn-primary" onclick="loadLatestRapport()">📡 ${fr?'Dernier rapport':'Latest report'}</button>
+          <button class="btn-ghost" onclick="importRapportJSON()">📥 ${fr?'Analyser le JSON collé':'Parse pasted JSON'}</button>
+          <label style="background:var(--bg4);border:1px solid var(--b3);border-radius:8px;padding:6px 14px;font-size:10px;color:var(--t2);cursor:pointer;font-family:var(--font-mono)">
+            📂 ${fr?'Fichier…':'File…'}<input type="file" accept=".json" style="display:none" onchange="importRapportFile(this)">
+          </label>
+        </div>
+      </div>
+      ${evs.length === 0 ? `
+        <div class="empty"><div class="empty-icon">📄</div><div class="empty-txt">${fr?'Les événements du rapport apparaîtront ici':'Report events will appear here'}</div></div>` : `
+        ${evs.map((e,i) => `
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--b3)">
+            <div style="flex:1">
+              <div style="font-size:12.5px;font-weight:600;font-family:var(--font-head)">${e.flag||'🎫'} ${e.name} ${recoBadge(e)}${flagBadges(e)}</div>
+              <div style="font-size:9.5px;color:var(--t3);font-family:var(--font-mono);margin-top:2px">${e.sub||''} · ${e.date||'?'} · ${e.platform||'—'}${axesTooltip(e)?' · '+axesTooltip(e):''}</div>
+              ${e.notes?`<div style="font-size:9.5px;color:var(--t3);margin-top:2px">${e.notes}</div>`:''}
+            </div>
+            ${e._imported ? `<span style="font-size:9px;color:var(--green);font-family:var(--font-mono)">✓ ${fr?'importé':'imported'}</span>` : `
+            <button onclick="importRapportEvent(${i})"
+              style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
+              + ${fr?'Importer':'Import'}
+            </button>`}
+          </div>`).join('')}
+        <div class="form-actions">
+          <button class="btn-primary" onclick="importAllRapport()">📥 ${fr?'Tout importer':'Import all'}</button>
+        </div>`}
+    </div>`;
+}
+
+async function loadLatestRapport() {
+  const fr = S.lang === 'fr';
+  try {
+    const res = await fetch('data/rapport-latest.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    importRapportJSON(await res.text());
+  } catch (err) {
+    toast((fr?'Dernier rapport introuvable (':'Latest report not found (') + err.message + ')', '⚠');
+  }
+}
+
+function importRapportFile(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => importRapportJSON(reader.result);
+  reader.readAsText(f);
+}
+
+function importRapportJSON(text) {
+  const fr = S.lang === 'fr';
+  const raw = text || (document.getElementById('rapport-json')||{}).value || '';
+  if (!raw.trim()) { toast(fr?'Colle d\'abord le JSON du rapport':'Paste the report JSON first','⚠'); return; }
+  try {
+    const data = JSON.parse(raw.trim());
+    const arr = Array.isArray(data) ? data : (data.events || []);
+    if (!arr.length) throw new Error(fr?'Aucun événement dans le rapport':'No events in report');
+    const existing = new Set(allEvs().map(e => e.name.toLowerCase()));
+    S._rapportMeta = { date: data.date || '' };
+    S._rapportEvents = arr.map(row => {
+      const face = parseFloat(row.face) || 0;
+      const resale = parseFloat(row.resale) || 0;
+      const marge = face > 0 ? Math.round(((resale*0.85 - face)/face)*100) : 0;
+      return {
+        name: String(row.name||''), sub: String(row.sub||row.venue||row.city||''),
+        date: String(row.date||''), h: String(row.horizon||row.h||'mid'),
+        country: String(row.country||'US'), flag: String(row.flag||'🎫'),
+        cat: String(row.cat||'concert'), platform: String(row.platform||''),
+        face, resale, marge,
+        score: parseFloat(row.score) || 0,
+        presale_date: String(row.presale_date||''), presale_code: String(row.presale_code||'').toUpperCase(),
+        notes: String(row.notes||''),
+        ...reportFields(row),
+        _imported: existing.has(String(row.name||'').toLowerCase()),
+      };
+    }).filter(e => e.name);
+    render();
+    toast(`📄 ${S._rapportEvents.length} ${fr?'événements analysés':'events parsed'}`,'✓');
+  } catch (err) {
+    toast((fr?'JSON invalide : ':'Invalid JSON: ') + err.message, '⚠');
+  }
+}
+
+function importRapportEvent(idx) {
+  const e = (S._rapportEvents || [])[idx];
+  if (!e || e._imported) return;
+  S.customEvents.push({
+    id: S.nextId++,
+    name: e.name, sub: e.sub, date: e.date, h: e.h,
+    country: e.country, flag: e.flag, cat: e.cat, platform: e.platform,
+    face: e.face, resale: e.resale, marge: e.marge, prevResale: e.resale,
+    score: e.score || Math.max(1, Math.round(((e.demande||0)+(e.rarete||0)+(e.liquidite||0)+(10-(e.risque||0)))/4)) || 5,
+    demande: e.demande, rarete: e.rarete, liquidite: e.liquidite, risque: e.risque,
+    reco: e.reco, flags: e.flags,
+    presale_date: e.presale_date, presale_code: e.presale_code,
+    qty: 0, notes: e.notes || 'Importé du rapport quotidien',
+    starred: false, custom: true, live: false,
+  });
+  e._imported = true;
+  saveState();
+  render();
+  toast(S.lang==='fr'?`"${e.name.slice(0,25)}" importé !`:`"${e.name.slice(0,25)}" imported!`, '✓');
+}
+
+function importAllRapport() {
+  (S._rapportEvents || []).forEach((e,i) => { if (!e._imported) importRapportEvent(i); });
 }
 
 /* ══════════════════════════════════════════════
@@ -2886,9 +3528,12 @@ function getPresaleStatus(ev) {
 }
 
 async function sendPresaleAlerts(events) {
-  if (!S.tgChatId) return 0;
   const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
   if (!backendUrl) return 0;
+  if (typeof sb !== 'undefined' && sb && sb.auth) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return 0;
+  } else return 0;
 
   const ALERT_DAYS = [3, 1, 0];
   const presaleEvents = events.filter(ev => {
@@ -2901,14 +3546,13 @@ async function sendPresaleAlerts(events) {
   try {
     const res = await fetch(backendUrl + '/api/notify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await backendAuthHeaders(),
       body: JSON.stringify({
         events: presaleEvents,
         drops: [],
         seuil: 0,
-        chatId: S.tgChatId,
-        presaleAlert: true
-      })
+        presaleAlert: true,
+      }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -2920,121 +3564,439 @@ async function sendPresaleAlerts(events) {
   return 0;
 }
 
-function renderPresaleTracker(c) {
+async function renderPresaleTracker(c) {
   const fr = S.lang === 'fr';
   const PRESALE_SOURCES = getPresaleSources();
-  const evs = allEvs();
-
-  // Events with presale info
-  const withPresale = evs.filter(e => e.presale_date || e.presale).map(e => ({
-    ...e,
-    _ps: getPresaleStatus(e)
-  })).sort((a, b) => {
-    const da = a._ps?.days ?? 999;
-    const db = b._ps?.days ?? 999;
-    return da - db;
-  });
-
-  // Upcoming presales (next 30 days)
-  const upcoming = withPresale.filter(e => e._ps && e._ps.days >= 0 && e._ps.days <= 30);
-  const past     = withPresale.filter(e => e._ps && e._ps.days < 0);
-  const noDate   = evs.filter(e => !e.presale_date && !e.presale);
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  const esc = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const safeHttpUrl = (u) => {
+    try {
+      const parsed = new URL(String(u || ''));
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.toString();
+    } catch (_) {}
+    return '';
+  };
 
   c.innerHTML = `
-    <!-- Header stats -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    <div class="card" style="padding:28px;text-align:center">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--t3)">🔑 ${fr ? 'Chargement Presale Intelligence…' : 'Loading Presale Intelligence…'}</div>
+    </div>`;
+
+  let intel = null;
+  let intelErr = null;
+  let outcomesPayload = null;
+  if (backendUrl) {
+    try {
+      const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+      const url = new URL('api/presales', base);
+      url.searchParams.set('days', '30');
+      const authH = await backendAuthHeaders();
+      const [resIntel, resOut] = await Promise.all([
+        fetch(url.toString()),
+        fetch(new URL('api/presales/outcomes', base).toString(), { headers: authH }).catch(() => null),
+      ]);
+      intel = await resIntel.json();
+      if (!resIntel.ok || intel?.ok === false) intelErr = intel?.error || `HTTP ${resIntel.status}`;
+      if (resOut && resOut.ok) {
+        outcomesPayload = await resOut.json();
+      } else if (resOut && resOut.status === 401) {
+        outcomesPayload = { ok: false, outcomes: [], auth_required: true };
+      }
+    } catch (e) {
+      intelErr = e.message || 'network';
+    }
+  } else {
+    intelErr = fr ? 'Backend non configuré' : 'Backend not configured';
+  }
+
+  const top10 = intel?.top10 || [];
+  const j1 = intel?.j1 || [];
+  const summary = intel?.summary || { buy: 0, watch: 0, avoid: 0, new: 0, j1: 0 };
+  const total = intel?.total || 0;
+  const calibration = intel?.calibration || outcomesPayload?.calibration || null;
+  const outcomes = outcomesPayload?.outcomes || [];
+  window.__presaleOpps = {};
+  [...top10, ...j1, ...(intel?.opportunities || [])].forEach(o => {
+    if (o?.id) window.__presaleOpps[o.id] = o;
+  });
+
+  const decisionStyle = (d) => {
+    if (d === 'Buy') return { col: 'var(--green)', bg: 'rgba(45,212,160,.12)', label: 'Buy' };
+    if (d === 'Watch') return { col: 'var(--gold2)', bg: 'rgba(212,168,67,.12)', label: 'Watch' };
+    return { col: 'var(--red)', bg: 'rgba(255,94,94,.12)', label: 'Avoid' };
+  };
+
+  const rowHtml = (o) => {
+    const ds = decisionStyle(o.decision);
+    const risk = (o.risk?.flags || []).map(f => f.label).slice(0, 2).join(' · ');
+    const when = o.days_to_sale === 0 ? (fr ? "Aujourd'hui" : 'Today')
+      : o.days_to_sale === 1 ? (fr ? 'Demain' : 'Tomorrow')
+      : `J-${o.days_to_sale}`;
+    const saleLabel = o.sale_name || o.sale_type || 'sale';
+    const alts = (o.alt_channels || []).map(a => a.sale_name).filter(Boolean).slice(0, 3);
+    const href = safeHttpUrl(o.url);
+    const mb = o.max_buy?.max_buy_face;
+    const fc = o.forecast;
+    const band = fc
+      ? `${fc.resale_conservative}–${fc.resale_optimistic}€`
+      : '';
+    const cats = (o.categories || []).slice(0, 3);
+    const comps = (o.comps || []).slice(0, 2);
+    const oid = esc(o.id || '');
+    return `
+      <div style="padding:12px 18px;border-bottom:1px solid var(--b3)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:46px;height:46px;border-radius:var(--r8);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;background:${ds.bg};border:1px solid ${ds.col}40">
+            <div style="font-family:var(--font-head);font-size:15px;font-weight:800;color:${ds.col}">${esc(o.opportunity_score ?? '—')}</div>
+            <div style="font-family:var(--font-mono);font-size:7px;color:var(--t4)">OPP</div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+              <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${esc(o.name || '—')}</span>
+              <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ds.bg};color:${ds.col};border:1px solid ${ds.col}40">${esc(ds.label)}</span>
+              ${o.is_new ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--t2)">NEW</span>` : ''}
+              ${o.risk?.blocked ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:rgba(255,94,94,.15);color:var(--red)">RISK</span>` : ''}
+              ${o.confidence != null ? `<span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--t3)">conf ${esc(o.confidence)}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
+              <span>🔑 ${esc(saleLabel)}</span>
+              <span>⏱ ${esc(when)}</span>
+              <span>📍 ${esc([o.city, o.country].filter(Boolean).join(', ') || '—')}</span>
+              <span>Demand ${esc(o.demand_score ?? '—')}</span>
+              <span>Resale ${esc(o.resale_score ?? '—')}</span>
+              ${mb ? `<span style="color:var(--gold2)">Max Buy ${esc(mb)}€</span>` : ''}
+              ${band ? `<span>Revente ${esc(band)}</span>` : ''}
+              ${o.face && (o.face_source === 'ticketmaster' || o.face_source === 'cache')
+                ? `<span style="color:var(--green)">Face ${esc(o.face)}€ <span style="opacity:.7">TM</span></span>`
+                : o.face
+                  ? `<span>Face ${esc(o.face)}€</span>`
+                  : (fc?.face_est ? `<span>Face ~${esc(fc.face_est)}€</span>` : '')}
+            </div>
+            ${alts.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">+ ${esc(alts.join(' · '))}</div>` : ''}
+            ${comps.length ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">📊 ${esc(comps.map(c => `${c.city || c.country || '—'} ${c.face}→${c.resale}€ (${c.match})`).join(' · '))}</div>` : ''}
+            ${risk ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">⚠ ${esc(risk)}</div>` : ''}
+            ${o.decision_reason ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:2px">${esc(o.decision_reason)}</div>` : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+            ${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"
+              style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);text-decoration:none;font-family:var(--font-mono);text-align:center">TM →</a>` : ''}
+            ${oid ? `<button type="button" onclick="logPresaleOutcome('${oid}')"
+              style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:5px 10px;font-size:10px;color:var(--t2);font-family:var(--font-mono);cursor:pointer">${fr ? 'Log trade' : 'Log trade'}</button>` : ''}
+          </div>
+        </div>
+        ${cats.length ? `
+        <div style="margin-top:10px;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px">
+            <thead>
+              <tr style="color:var(--t4);text-align:left">
+                <th style="padding:4px 6px;font-weight:500">${fr ? 'Catégorie' : 'Category'}</th>
+                <th style="padding:4px 6px;font-weight:500">Face</th>
+                <th style="padding:4px 6px;font-weight:500">Max Buy</th>
+                <th style="padding:4px 6px;font-weight:500">${fr ? 'Revente' : 'Resale'}</th>
+                <th style="padding:4px 6px;font-weight:500">ROI</th>
+                <th style="padding:4px 6px;font-weight:500"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${cats.map(c => {
+                const col = c.decision === 'Acheter' ? 'var(--green)' : c.decision === 'Limite' ? 'var(--gold2)' : 'var(--red)';
+                return `<tr style="border-top:1px solid var(--b3)">
+                  <td style="padding:5px 6px;color:var(--t2)">${esc(c.category)}</td>
+                  <td style="padding:5px 6px">${esc(c.face)}€</td>
+                  <td style="padding:5px 6px;color:var(--gold2)">${esc(c.max_buy)}€</td>
+                  <td style="padding:5px 6px">${esc(c.resale_conservative)}€</td>
+                  <td style="padding:5px 6px">${esc(c.roi_net_pct)}%</td>
+                  <td style="padding:5px 6px;color:${col};font-weight:700">${esc(c.decision)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+      </div>`;
+  };
+
+  const outcomeRow = (o) => {
+    const err = o.error_resale_pct;
+    const errCol = err == null ? 'var(--t4)' : Math.abs(err) <= 15 ? 'var(--green)' : err > 0 ? 'var(--gold2)' : 'var(--red)';
+    const stCol = o.status === 'sold' ? 'var(--green)' : o.status === 'listed' ? 'var(--purple)' : 'var(--gold2)';
+    return `
+      <div style="padding:12px 18px;border-bottom:1px solid var(--b3)">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+              <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${esc(o.name)}</span>
+              <span style="font-family:var(--font-mono);font-size:8px;padding:2px 6px;border-radius:4px;color:${stCol};border:1px solid ${stCol}40;background:var(--bg3)">${esc(o.status)}</span>
+              ${o.category ? `<span style="font-family:var(--font-mono);font-size:8px;color:var(--t4)">${esc(o.category)}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
+              <span>MaxBuy ${esc(o.recommended_max_buy ?? '—')}€</span>
+              <span>Payé ${esc(o.paid_face ?? '—')}€</span>
+              ${o.listed_price ? `<span>Listé ${esc(o.listed_price)}€</span>` : ''}
+              ${o.sold_price ? `<span>Vendu ${esc(o.sold_price)}€</span>` : ''}
+              ${o.forecast_resale_median ? `<span>Prév ${esc(o.forecast_resale_median)}€</span>` : ''}
+              ${o.profit_net != null ? `<span style="color:${o.profit_net >= 0 ? 'var(--green)' : 'var(--red)'}">P&L ${o.profit_net >= 0 ? '+' : ''}${esc(o.profit_net)}€</span>` : ''}
+              ${err != null ? `<span style="color:${errCol}">Err ${err > 0 ? '+' : ''}${esc(err)}%</span>` : ''}
+              ${o.hold_days != null ? `<span>Hold ${esc(o.hold_days)}j</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+            ${o.status === 'bought' ? `<button type="button" onclick="markPresaleListed('${esc(o.id)}')" style="background:var(--bg3);border:1px solid var(--b3);border-radius:6px;padding:4px 8px;font-size:9px;font-family:var(--font-mono);color:var(--t2);cursor:pointer">${fr ? '→ Listé' : '→ Listed'}</button>` : ''}
+            ${o.status === 'bought' || o.status === 'listed' ? `<button type="button" onclick="markPresaleSold('${esc(o.id)}')" style="background:rgba(45,212,160,.12);border:1px solid var(--green)40;border-radius:6px;padding:4px 8px;font-size:9px;font-family:var(--font-mono);color:var(--green);cursor:pointer">${fr ? '→ Vendu' : '→ Sold'}</button>` : ''}
+            <button type="button" onclick="deletePresaleOutcome('${esc(o.id)}')" style="background:transparent;border:none;font-size:9px;font-family:var(--font-mono);color:var(--t4);cursor:pointer">✕</button>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  // Sheet-based fallback section (legacy)
+  const evs = allEvs();
+  const withPresale = evs.filter(e => e.presale_date || e.presale).map(e => ({
+    ...e, _ps: getPresaleStatus(e)
+  })).sort((a, b) => (a._ps?.days ?? 999) - (b._ps?.days ?? 999));
+  const upcomingSheet = withPresale.filter(e => e._ps && e._ps.days >= 0 && e._ps.days <= 30);
+
+  const cal = calibration || {};
+  const openOutcomes = outcomes.filter(o => o.status === 'bought' || o.status === 'listed');
+  const soldOutcomes = outcomes.filter(o => o.status === 'sold');
+
+  c.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
       ${[
-        { lbl: fr?'PRESALES À VENIR':'UPCOMING', val: upcoming.length, col: 'var(--green)', icon: '🔑' },
-        { lbl: fr?'DANS LES 3 JOURS':'IN 3 DAYS', val: upcoming.filter(e=>e._ps.days<=3).length, col: 'var(--red)', icon: '🚨' },
-        { lbl: fr?'CETTE SEMAINE':'THIS WEEK', val: upcoming.filter(e=>e._ps.days<=7).length, col: 'var(--gold2)', icon: '⚡' },
-        { lbl: fr?'SANS DATE':'NO DATE', val: noDate.length, col: 'var(--t3)', icon: '❓' },
+        { lbl: fr ? 'FENÊTRE 30J' : '30D WINDOW', val: total, col: 'var(--t1)', icon: '🔑' },
+        { lbl: 'BUY', val: summary.buy || 0, col: 'var(--green)', icon: '✅' },
+        { lbl: 'WATCH', val: summary.watch || 0, col: 'var(--gold2)', icon: '👀' },
+        { lbl: 'AVOID', val: summary.avoid || 0, col: 'var(--red)', icon: '⛔' },
+        { lbl: fr ? 'CONF MOY.' : 'AVG CONF', val: summary.avg_confidence ?? '—', col: 'var(--t2)', icon: '📊' },
+        { lbl: fr ? 'FACE TM' : 'TM FACE', val: summary.with_real_face ?? 0, col: 'var(--green)', icon: '💶' },
       ].map(k => `
         <div style="background:var(--bg2);border:1px solid var(--b3);border-radius:var(--r12);padding:14px;position:relative;overflow:hidden">
           <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${k.col},transparent)"></div>
           <div style="font-family:var(--font-mono);font-size:8.5px;color:var(--t3);letter-spacing:.1em;margin-bottom:8px">${k.lbl}</div>
-          <div style="font-family:var(--font-head);font-size:28px;font-weight:800;color:${k.col}">${k.val}</div>
-          <div style="font-size:16px;position:absolute;top:12px;right:14px;opacity:.3">${k.icon}</div>
+          <div style="font-family:var(--font-head);font-size:26px;font-weight:800;color:${k.col}">${k.val}</div>
+          <div style="font-size:14px;position:absolute;top:12px;right:14px;opacity:.3">${k.icon}</div>
         </div>`).join('')}
     </div>
 
-    <!-- Presale sources legend -->
+    ${intelErr ? `
+      <div class="card" style="margin-bottom:14px;padding:14px 18px;border-color:var(--red)">
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--red)">⚠ ${fr ? 'Presale API' : 'Presale API'}: ${esc(intelErr)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--t4);margin-top:4px">${fr ? 'Vérifie le backend + TICKETMASTER_API_KEY sur Render.' : 'Check backend + TICKETMASTER_API_KEY on Render.'}</div>
+      </div>` : ''}
+
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
-        <span class="card-title">🔑 ${fr?'Sources de presale':'Presale sources'}</span>
+        <span class="card-title">📈 ${fr ? 'Feedback loop (Sprint 3)' : 'Feedback loop (Sprint 3)'}</span>
+        <span class="card-meta">${cal.n_sold || 0} sold · ${cal.n_open || 0} open${cal.ready ? ` · cal ×${cal.factor}` : ''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 18px 14px">
+        ${[
+          { lbl: 'MAE', val: cal.mae_pct != null ? `${cal.mae_pct}%` : '—', tip: fr ? 'Erreur abs. médiane vs prévision' : 'Median abs error vs forecast' },
+          { lbl: 'BIAS', val: cal.bias_pct != null ? `${cal.bias_pct > 0 ? '+' : ''}${cal.bias_pct}%` : '—', tip: fr ? 'Sur/sous-prédiction revente' : 'Over/under-predict resale' },
+          { lbl: 'WIN', val: cal.win_rate != null ? `${cal.win_rate}%` : '—', tip: fr ? 'Trades rentables' : 'Profitable trades' },
+          { lbl: fr ? 'SOUS MAX BUY' : 'UNDER MAX', val: cal.under_max_buy_rate != null ? `${cal.under_max_buy_rate}%` : '—', tip: fr ? 'Achats ≤ Max Buy' : 'Buys ≤ Max Buy' },
+        ].map(k => `
+          <div style="background:var(--bg3);border:1px solid var(--b3);border-radius:var(--r8);padding:10px 12px" title="${esc(k.tip)}">
+            <div style="font-family:var(--font-mono);font-size:8px;color:var(--t4);letter-spacing:.08em">${k.lbl}</div>
+            <div style="font-family:var(--font-head);font-size:18px;font-weight:800;margin-top:4px">${k.val}</div>
+          </div>`).join('')}
+      </div>
+      ${!cal.ready ? `
+        <div style="padding:0 18px 14px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+          ${fr
+            ? 'Log ≥ 3 ventes (payé → listé → vendu) pour activer la calibration auto des prévisions.'
+            : 'Log ≥ 3 sold trades (paid → listed → sold) to enable auto forecast calibration.'}
+        </div>` : `
+        <div style="padding:0 18px 14px;font-size:10px;color:var(--t3);font-family:var(--font-mono)">
+          ${fr
+            ? `Calibration active (×${cal.factor}) — les bandes revente tiennent compte de ton biais historique.`
+            : `Calibration live (×${cal.factor}) — resale bands adjusted from your historical bias.`}
+        </div>`}
+      ${(openOutcomes.length || soldOutcomes.length) ? `
+        <div style="border-top:1px solid var(--b3)">
+          ${openOutcomes.slice(0, 8).map(outcomeRow).join('')}
+          ${soldOutcomes.slice(0, 6).map(outcomeRow).join('')}
+        </div>` : `
+        <div style="padding:4px 18px 16px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+          ${outcomesPayload?.auth_required
+            ? (fr ? 'Connecte-toi pour voir et logger tes trades (multi-user).' : 'Sign in to view and log your trades (multi-user).')
+            : (fr ? 'Aucun trade loggé — clique « Log trade » sur une opportunité Buy.' : 'No trades yet — click “Log trade” on a Buy opportunity.')}
+        </div>`}
+    </div>
+
+    ${j1.length ? `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🚨 ${fr ? 'Ventes J-0 / J-1' : 'Sales J-0 / J-1'}</span>
+        <span class="card-meta">${j1.length}</span>
+      </div>
+      ${j1.slice(0, 8).map(rowHtml).join('')}
+    </div>` : ''}
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🏆 ${fr ? 'Top 10 opportunités' : 'Top 10 opportunities'}</span>
+        <span class="card-meta">${top10.length} · Max Buy · comps</span>
+      </div>
+      ${top10.length === 0 ? `
+        <div class="empty">
+          <div class="empty-icon">🔑</div>
+          <div class="empty-txt">${fr ? 'Aucune vente TM dans la fenêtre — réessaie plus tard' : 'No TM sales in window — try again later'}</div>
+        </div>` : top10.map(rowHtml).join('')}
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <span class="card-title">🔑 ${fr ? 'Sources Sheet (manuel)' : 'Sheet sources (manual)'}</span>
+        <span class="card-meta">${upcomingSheet.length}</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 18px">
         ${Object.entries(PRESALE_SOURCES).map(([k, v]) => `
-          <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--b3);border-radius:20px;padding:4px 12px;cursor:default" title="${v.tip}">
+          <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--b3);border-radius:20px;padding:4px 12px" title="${v.tip}">
             <span>${v.icon}</span>
             <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--t2)">${k}</span>
           </div>`).join('')}
       </div>
-      <div style="padding:8px 18px 12px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
-        ${fr?'Ajoute une colonne "presale_date" (YYYY-MM-DD) et "presale_code" dans ton Google Sheet':'Add "presale_date" (YYYY-MM-DD) and "presale_code" columns to your Google Sheet'}
-      </div>
-    </div>
-
-    <!-- Upcoming presales -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-head">
-        <span class="card-title">⏰ ${fr?'Presales à venir':'Upcoming presales'}</span>
-        <span class="card-meta">${upcoming.length} ${fr?'events':'events'}</span>
-      </div>
-      ${upcoming.length === 0 ? `
-        <div class="empty">
-          <div class="empty-icon">🔑</div>
-          <div class="empty-txt">${fr?"Ajoute une colonne 'presale_date' dans ton Sheet":"Add a 'presale_date' column to your Sheet"}</div>
+      ${upcomingSheet.length === 0 ? `
+        <div style="padding:8px 18px 14px;font-size:10px;color:var(--t4);font-family:var(--font-mono)">
+          ${fr ? 'Optionnel : colonne presale_date dans le Sheet' : 'Optional: presale_date column in Sheet'}
         </div>` :
-        upcoming.map(ev => {
+        upcomingSheet.slice(0, 6).map(ev => {
           const ps = ev._ps;
-          const src = PRESALE_SOURCES[ev.presale_code] || { icon: '🔑', label: ev.presale_code || '—', tip: '' };
           return `
-          <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b3)">
-            <div style="width:42px;height:42px;border-radius:var(--r8);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:${ps.color}15;border:1px solid ${ps.color}40">
-              ${ps.icon}
-            </div>
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
-                <span style="font-family:var(--font-head);font-size:13px;font-weight:700">${ev.flag||'🎫'} ${ev.name}</span>
-                <span style="font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${ps.color}15;color:${ps.color};border:1px solid ${ps.color}40">${ps.status}</span>
-              </div>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;color:var(--t3)">
-                <span>📅 ${ev.presale_date || ev.presale}</span>
-                <span>${src.icon} ${src.label}</span>
-                <span>💰 +${ev.marge}%</span>
-                <span>${ev.face}€ → ${ev.resale}€</span>
-              </div>
-              ${src.tip ? `<div style="font-size:9.5px;color:var(--t4);font-family:var(--font-mono);margin-top:3px">💡 ${src.tip}</div>` : ''}
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-              <button onclick="openPlatform(${ev.id})"
-                style="background:var(--goldbg);border:1px solid var(--goldbdr);border-radius:var(--r8);padding:5px 12px;font-size:10px;color:var(--gold2);cursor:pointer;font-family:var(--font-mono)">
-                🛒 ${fr?'Acheter':'Buy'}
-              </button>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--b3)">
+            <span style="font-size:16px">${ps.icon}</span>
+            <div style="flex:1">
+              <div style="font-family:var(--font-head);font-size:12.5px;font-weight:600">${ev.name}</div>
+              <div style="font-family:var(--font-mono);font-size:9.5px;color:var(--t3)">${ev.presale_date || ev.presale} · ${ps.status}</div>
             </div>
           </div>`;
         }).join('')}
-    </div>
-
-    <!-- Events sans date presale -->
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">❓ ${fr?'Sans date presale':'No presale date'}</span>
-        <span class="card-meta">${noDate.length} ${fr?'events à surveiller':'events to watch'}</span>
-      </div>
-      <div style="padding:10px 18px;font-size:11px;color:var(--t3);font-family:var(--font-mono);border-bottom:1px solid var(--b3)">
-        ${fr?'Ajoute presale_date + presale_code dans ton Sheet pour ces events':'Add presale_date + presale_code to your Sheet for these events'}
-      </div>
-      ${noDate.slice(0,8).map(ev => `
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--b3)">
-          <span style="font-size:16px">${ev.flag||'🎫'}</span>
-          <div style="flex:1">
-            <div style="font-family:var(--font-head);font-size:12.5px;font-weight:600">${ev.name}</div>
-            <div style="font-family:var(--font-mono);font-size:9.5px;color:var(--t3)">${ev.date||'—'} · +${ev.marge}%</div>
-          </div>
-          <span style="font-family:var(--font-mono);font-size:9px;color:var(--t4);background:var(--bg3);padding:2px 8px;border-radius:4px">Pas de presale_date</span>
-        </div>`).join('')}
     </div>`;
+}
+
+async function logPresaleOutcome(oppId) {
+  const fr = S.lang === 'fr';
+  const o = (window.__presaleOpps || {})[oppId];
+  if (!o) return toast(fr ? 'Opportunité introuvable' : 'Opportunity not found', '⚠');
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return toast(fr ? 'Backend manquant' : 'Backend missing', '⚠');
+
+  const authH = await backendAuthHeaders();
+  if (!authH.Authorization) {
+    return toast(fr ? 'Connecte-toi pour logger un trade' : 'Sign in to log a trade', '⚠');
+  }
+
+  const faceHint = o.face && (o.face_source === 'ticketmaster' || o.face_source === 'cache')
+    ? o.face
+    : (o.max_buy?.max_buy_face || o.forecast?.face_est || '');
+  const paidStr = prompt(fr ? `Prix payé face (€) — Max Buy / Face ${faceHint || '—'}€` : `Paid face (€) — Max Buy / Face ${faceHint || '—'}€`, String(faceHint || ''));
+  if (paidStr == null) return;
+  const paid = Number(paidStr);
+  if (!(paid > 0)) return toast(fr ? 'Prix invalide' : 'Invalid price', '⚠');
+
+  const cat = prompt(fr ? 'Catégorie (GA / Catégorie 1 / VIP)' : 'Category (GA / Cat 1 / VIP)', 'GA / Fosse') || 'GA / Fosse';
+  const qty = Math.max(1, Math.min(20, Number(prompt(fr ? 'Quantité' : 'Qty', '1')) || 1));
+
+  try {
+    const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+    const res = await fetch(new URL('api/presales/outcomes', base).toString(), {
+      method: 'POST',
+      headers: authH,
+      body: JSON.stringify({
+        opp_id: o.id,
+        tm_id: o.tm_id,
+        name: o.name,
+        artist: o.artist,
+        venue: o.venue,
+        city: o.city,
+        country: o.country,
+        date: o.date,
+        url: o.url,
+        category: cat,
+        sale_name: o.sale_name,
+        recommended_max_buy: o.max_buy?.max_buy_face,
+        forecast_face_est: o.forecast?.face_est,
+        forecast_resale_conservative: o.forecast?.resale_conservative,
+        forecast_resale_median: o.forecast?.resale_median,
+        forecast_resale_optimistic: o.forecast?.resale_optimistic,
+        decision: o.decision,
+        confidence: o.confidence,
+        demand_score: o.demand_score,
+        opportunity_score: o.opportunity_score,
+        comps_priced: o.forecast?.comps_priced,
+        paid_face: paid,
+        qty,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error(fr ? 'Connecte-toi pour logger un trade' : 'Sign in to log a trade');
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(fr ? 'Trade loggé ✓' : 'Trade logged ✓', '✓');
+    render();
+  } catch (e) {
+    toast((fr ? 'Erreur log: ' : 'Log error: ') + (e.message || e), '⚠');
+  }
+}
+
+async function markPresaleListed(id) {
+  const fr = S.lang === 'fr';
+  const price = Number(prompt(fr ? 'Prix listé (€)' : 'Listed price (€)', ''));
+  if (!(price > 0)) return;
+  await patchPresaleOutcome(id, { listed_price: price, status: 'listed' });
+}
+
+async function markPresaleSold(id) {
+  const fr = S.lang === 'fr';
+  const price = Number(prompt(fr ? 'Prix de vente (€)' : 'Sold price (€)', ''));
+  if (!(price > 0)) return;
+  const feeStr = prompt(fr ? 'Frais vente % (défaut 15)' : 'Sell fee % (default 15)', '15');
+  const sell_fee_pct = feeStr != null && feeStr !== '' ? Number(feeStr) / 100 : 0.15;
+  await patchPresaleOutcome(id, { sold_price: price, sell_fee_pct, status: 'sold' });
+}
+
+async function deletePresaleOutcome(id) {
+  const fr = S.lang === 'fr';
+  if (!confirm(fr ? 'Supprimer ce trade ?' : 'Delete this trade?')) return;
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return;
+  try {
+    const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+    const url = new URL(`api/presales/outcomes/${encodeURIComponent(id)}`, base);
+    const authH = await backendAuthHeaders();
+    if (!authH.Authorization) return toast(fr ? 'Connecte-toi' : 'Sign in', '⚠');
+    const res = await fetch(url.toString(), { method: 'DELETE', headers: authH });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(fr ? 'Supprimé' : 'Deleted', '✓');
+    render();
+  } catch (e) {
+    toast(e.message || 'error', '⚠');
+  }
+}
+
+async function patchPresaleOutcome(id, body) {
+  const fr = S.lang === 'fr';
+  const backendUrl = S.apiUrl || CONFIG.BACKEND_URL;
+  if (!backendUrl) return;
+  try {
+    const base = backendUrl.endsWith('/') ? backendUrl : backendUrl + '/';
+    const url = new URL(`api/presales/outcomes/${encodeURIComponent(id)}`, base);
+    const authH = await backendAuthHeaders();
+    if (!authH.Authorization) return toast(fr ? 'Connecte-toi' : 'Sign in', '⚠');
+    const res = await fetch(url.toString(), {
+      method: 'PATCH',
+      headers: authH,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(fr ? 'Mis à jour ✓' : 'Updated ✓', '✓');
+    render();
+  } catch (e) {
+    toast(e.message || 'error', '⚠');
+  }
 }
 
 /* ── Expose functions globally for onclick handlers ── */
@@ -3079,12 +4041,18 @@ window.buildMobileCards = buildMobileCards;
 window.checkCountdownAlerts = checkCountdownAlerts;
 window.renderAIPredictor    = renderAIPredictor;
 window.renderPresaleTracker = renderPresaleTracker;
+window.logPresaleOutcome = logPresaleOutcome;
+window.markPresaleListed = markPresaleListed;
+window.markPresaleSold = markPresaleSold;
+window.deletePresaleOutcome = deletePresaleOutcome;
 window.sendPresaleAlerts    = sendPresaleAlerts;
 window.showAuthModal  = showAuthModal;
 window.hideAuthModal  = hideAuthModal;
 window.skipAuth       = skipAuth;
 window.switchAuthTab  = switchAuthTab;
 window.submitAuth     = submitAuth;
+window.showPasswordRecoveryModal = showPasswordRecoveryModal;
+window.submitNewPassword = submitNewPassword;
 window.toggleUserMenu = toggleUserMenu;
 window.closeUserMenu  = closeUserMenu;
 window.togglePwd      = togglePwd;
@@ -3216,32 +4184,6 @@ async function runDashAI() {
 }
 
 window.runDashAI           = runDashAI;
-
-function toggleMobileMore() {
-  const el = document.getElementById('mobile-more-menu');
-  if (!el) return;
-  el.classList.toggle('open');
-  updateMobileAccountUI();
-}
-window.toggleMobileMore = toggleMobileMore;
-
-function showAuthOverlay() {
-  showAuthModal();
-}
-window.showAuthOverlay = showAuthOverlay;
-
-function updateMobileAccountUI() {
-  const user = window.currentUser;
-  const signinBtn = document.getElementById('mmm-signin');
-  const signoutBtn = document.getElementById('mmm-signout');
-  const emailEl = document.getElementById('mmm-email');
-  const avatarBtn = document.getElementById('mob-avatar');
-  if (signinBtn) signinBtn.style.display = user ? 'none' : 'block';
-  if (signoutBtn) signoutBtn.style.display = user ? 'block' : 'none';
-  if (emailEl) emailEl.textContent = user ? user.email : '';
-  if (avatarBtn) avatarBtn.textContent = user ? '●' : '👤';
-}
-window.updateMobileAccountUI = updateMobileAccountUI;
 
 function setDashQ(q) {
   const el = document.getElementById('ai-q-dash');

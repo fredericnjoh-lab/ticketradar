@@ -14,14 +14,33 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
    AUTH
 ══════════════════════════════════════════════ */
 
-async function sbSignUp(email, password) {
-  const { data, error } = await sb.auth.signUp({ email, password });
+async function sbSignUp(email, password, { lang } = {}) {
+  const userLang = lang || (typeof S !== 'undefined' && S.lang === 'en' ? 'en' : 'fr');
+  const { data, error } = await sb.auth.signUp({
+    email,
+    password,
+    options: { data: { lang: userLang } },
+  });
   if (error) throw error;
   return data;
 }
 
 async function sbSignIn(email, password) {
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+}
+
+/** Envoie un e-mail de réinitialisation (redirect vers l’app) */
+async function sbResetPassword(email) {
+  const redirectTo = new URL('.', window.location.href).href.split('#')[0];
+  const { data, error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw error;
+  return data;
+}
+
+async function sbUpdatePassword(newPassword) {
+  const { data, error } = await sb.auth.updateUser({ password: newPassword });
   if (error) throw error;
   return data;
 }
@@ -255,12 +274,18 @@ async function sbDeleteCustomEvent(id) {
 
 sb.auth.onAuthStateChange(async (event, session) => {
   console.log('[Auth]', event, session?.user?.email || '—');
+  if (event === 'PASSWORD_RECOVERY' && session?.user) {
+    window.currentUser = session.user;
+    if (typeof showPasswordRecoveryModal === 'function') showPasswordRecoveryModal();
+    return;
+  }
   if (event === 'SIGNED_IN' && session?.user) {
     window.currentUser = session.user;
     await loadUserData(session.user.id);
+    if (typeof updateUserBtn === 'function') updateUserBtn();
   } else if (event === 'SIGNED_OUT') {
     window.currentUser = null;
-    // Reset to local state
+    if (typeof updateUserBtn === 'function') updateUserBtn();
     if (typeof render === 'function') render();
   }
 });
@@ -287,6 +312,10 @@ async function loadUserData(userId) {
         sbUpdateProfile(userId, { sheet_url: S.sheetUrl }).catch(() => {});
       }
       if (profile.tg_chat_id && !S.tgChatId) S.tgChatId = profile.tg_chat_id;
+      // Store plan on currentUser so Pricing page can read it
+      if (window.currentUser) {
+        window.currentUser.plan = profile.plan || 'free';
+      }
     }
     if (watchlist.length)    S.wl           = watchlist;
     if (Object.values(kanban).flat().length) S.kanban = kanban;
